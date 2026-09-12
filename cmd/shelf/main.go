@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rotisserie/eris"
@@ -32,6 +33,11 @@ func main() {
 	if flag.NArg() > 0 {
 		next := config.Current()
 		for _, spec := range flag.Args() {
+			// Flags only parse before the first folder; one that lands here
+			// was meant as a flag, not a folder to index.
+			if strings.HasPrefix(spec, "-") {
+				logx.Fatal(eris.Errorf("%q looks like a flag — put flags before the folder: shelf -listen :41010 <folder>", spec))
+			}
 			if !contains(next.Roots, spec) {
 				next.Roots = append(next.Roots, spec)
 			}
