@@ -18,6 +18,13 @@ type Config struct {
 	// any folder with that name at any depth; a path ("Shows/Extras") skips
 	// that folder under any root, and everything beneath it.
 	Ignore []string `json:"ignore"`
+	// AllFeed changes only the combined feed; dedicated media tabs stay available.
+	AllFeed AllFeed `json:"all_feed"`
+}
+
+type AllFeed struct {
+	Photos bool `json:"photos"`
+	Videos bool `json:"videos"`
 }
 
 const DefaultPath = "config.json"
@@ -28,7 +35,7 @@ var (
 )
 
 func Default() Config {
-	return Config{Roots: []string{}, Ignore: []string{}}
+	return Config{Roots: []string{}, Ignore: []string{}, AllFeed: AllFeed{Photos: true, Videos: true}}
 }
 
 // Load reads the file, creating a default one when it does not exist yet.

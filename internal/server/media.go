@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -70,7 +71,7 @@ func handleThumb(w http.ResponseWriter, r *http.Request) {
 	}
 	if !library.HasThumb(f) {
 		if err := library.RenderThumb(r.Context(), f, false); err != nil {
-			if r.Context().Err() == nil {
+			if r.Context().Err() == nil && !errors.Is(err, library.ErrPreviewUnavailable) {
 				logx.Error(eris.Wrapf(err, "Failed to render a thumbnail for %s", f.Name))
 			}
 			http.NotFound(w, r)

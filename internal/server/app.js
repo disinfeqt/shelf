@@ -12,7 +12,76 @@ function el(tag, cls, text) {
   return n;
 }
 
-const KIND_LABELS = { photo: "photo", video: "video", gif: "GIF" };
+/* A small, local icon set: the same stroke and proportions everywhere. */
+const ICON_PATHS = {
+  library: "M5 3h5v14H5zM14 3h5v14h-5zM3 21h18",
+  grid: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+  compact:
+    "M3 3h4v4H3zM10 3h4v4h-4zM17 3h4v4h-4zM3 10h4v4H3zM10 10h4v4h-4zM17 10h4v4h-4zM3 17h4v4H3zM10 17h4v4h-4zM17 17h4v4h-4z",
+  photo:
+    "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM3 16l5-5 5 5 3-3 5 5M15 7h.01",
+  video:
+    "M4 5h11a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2ZM17 10l5-3v10l-5-3",
+  folder:
+    "M3 7V5a2 2 0 0 1 2-2h4l3 4h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z",
+  folderOpen:
+    "M3 11V5a2 2 0 0 1 2-2h4l3 4h7a2 2 0 0 1 2 2v2M3 11h19l-3 10H3L1 11h2Z",
+  folderPlus:
+    "M3 7V5a2 2 0 0 1 2-2h4l3 4h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7ZM12 11v6M9 14h6",
+  search: "M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15ZM16 16l5 5",
+  calendar:
+    "M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2ZM7 3v4M17 3v4M3 11h18M7 15h2M13 15h2",
+  activity: "M2 12h5l3-8 4 16 3-8h5",
+  settings:
+    "M4 7h8M16 7h4M4 17h3M11 17h9M12 4v6M16 4v6M12 4h4M12 10h4M7 14v6M11 14v6M7 14h4M7 20h4",
+  sort: "M8 4v16M4 16l4 4 4-4M14 5h7M14 10h5M14 15h3",
+  plus: "M12 5v14M5 12h14",
+  chevron: "M9 5l7 7-7 7",
+  arrowLeft: "M19 12H5M12 5l-7 7 7 7",
+  arrowRight: "M5 12h14M12 5l7 7-7 7",
+  close: "M6 6l12 12M18 6 6 18",
+  refresh: "M20 8a8 8 0 0 0-14-3L3 8M3 3v5h5M4 16a8 8 0 0 0 14 3l3-3M16 16h5v5",
+  drive:
+    "M5 4h14l3 10v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5L5 4ZM2 14h20M6 17.5h.01M10 17.5h.01",
+  external:
+    "M14 3h7v7M21 3l-11 11M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5",
+  trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7",
+  play: "M8 5l11 7-11 7Z",
+  pause: "M7 5h3v14H7zM14 5h3v14h-3z",
+  volume: "M11 4 6 8H3v8h3l5 4ZM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14",
+  volumeOff: "M11 4 6 8H3v8h3l5 4ZM16 9l6 6M22 9l-6 6",
+  eyeOff:
+    "M3 3l18 18M10 10a3 3 0 0 0 4 4M9 5a11 11 0 0 1 13 7 16 16 0 0 1-4 5M6 6a16 16 0 0 0-4 6s4 7 10 7c1 0 2 0 3-1",
+  check: "M5 12l4 4L19 6",
+  alert: "M12 3 2 21h20L12 3ZM12 9v5M12 17h.01",
+  info: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM12 11v6M12 7h.01",
+  menu: "M3 6h18M3 12h18M3 18h18",
+};
+function icon(kind) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "icon icon-" + kind);
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  const path = document.createElementNS(ns, "path");
+  path.setAttribute("d", ICON_PATHS[kind] || ICON_PATHS.grid);
+  svg.append(path);
+  return svg;
+}
+function iconLabel(node, kind, label) {
+  node.replaceChildren(icon(kind), el("span", "", label));
+  return node;
+}
+for (const node of document.querySelectorAll("[data-icon]")) {
+  node.replaceChildren(icon(node.dataset.icon));
+}
+const VIEW_ICONS = {
+  timeline: "calendar",
+  activity: "activity",
+  settings: "settings",
+};
+
 const KIND_TABS = [
   ["all", "All"],
   ["photo", "Photos"],
@@ -55,7 +124,10 @@ let foldersCache = null;
 function withRoot(url) {
   if (!state.root) return url;
   return (
-    url + (url.includes("?") ? "&" : "?") + "root=" + encodeURIComponent(state.root)
+    url +
+    (url.includes("?") ? "&" : "?") +
+    "root=" +
+    encodeURIComponent(state.root)
   );
 }
 
@@ -68,6 +140,12 @@ async function loadStatus(force) {
 }
 
 const roots = () => (statusCache && statusCache.roots) || [];
+const allFeedSettings = () => ({
+  photos: statusCache?.all_feed?.photos !== false,
+  videos: statusCache?.all_feed?.videos !== false,
+});
+const visibleInAll = (kind) =>
+  allFeedSettings()[kind === "video" ? "videos" : "photos"];
 
 async function ensureStats() {
   if (statsCache) return statsCache;
@@ -77,37 +155,112 @@ async function ensureStats() {
   return statsCache;
 }
 
+function folderURL() {
+  const p = new URLSearchParams({ kind: state.kind });
+  if (state.q) p.set("q", state.q);
+  if (state.month) p.set("month", state.month);
+  // Keep the tree across roots and sibling folders so it remains navigable.
+  return "/api/folders?" + p;
+}
+
 async function ensureFolders() {
-  if (foldersCache) return foldersCache;
-  const res = await fetch("/api/folders");
-  if (!res.ok) throw new Error("folders request failed");
-  foldersCache = (await res.json()).items;
-  return foldersCache;
+  const url = folderURL();
+  const key = url + "|" + JSON.stringify(allFeedSettings());
+  if (foldersCache?.key === key) return foldersCache.promise;
+  const entry = { key, promise: null };
+  entry.promise = (async () => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("folders request failed");
+    return (await res.json()).items;
+  })();
+  foldersCache = entry;
+  try {
+    return await entry.promise;
+  } catch (error) {
+    if (foldersCache === entry) foldersCache = null;
+    throw error;
+  }
 }
 
 /* ---- Sidebar: the folder tree ---- */
+const FOLDER_SORTS = [
+  ["name", "Alphabetical A–Z"],
+  ["name-desc", "Alphabetical Z–A"],
+  ["modified", "Recently modified"],
+  ["modified-oldest", "Oldest modified"],
+  ["count", "Most items"],
+];
+let folderSort = "name";
+try {
+  const saved = localStorage.getItem("shelf-folder-sort");
+  if (FOLDER_SORTS.some(([value]) => value === saved)) folderSort = saved;
+} catch {
+  // Sorting still works when storage is unavailable.
+}
+const folderNames = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: "base",
+});
+function compareFolders(a, b) {
+  const byName =
+    folderNames.compare(a.name, b.name) ||
+    a.root.localeCompare(b.root) ||
+    a.dir.localeCompare(b.dir);
+  if (folderSort === "name-desc") return -byName;
+  if (folderSort === "count") return b.count - a.count || byName;
+  if (folderSort === "modified" || folderSort === "modified-oldest") {
+    // Empty roots have no date and stay last in either date direction.
+    if (a.modified === null) return b.modified === null ? byName : 1;
+    if (b.modified === null) return -1;
+    const byDate = a.modified - b.modified;
+    return (folderSort === "modified" ? -byDate : byDate) || byName;
+  }
+  return byName;
+}
+
 // Which nodes are unfolded, by "root\ndir". Roots start open; whatever
 // leads to the folder on screen is opened as it is selected.
 const expanded = new Set();
+let searchExpanded = new Set();
+let treeSearch = "";
+let treeRender = 0;
 let treeTouched = false;
 const nodeKey = (root, dir) => root + "\n" + dir;
 
 // Builds one tree per root out of the flat folder counts.
 function buildTree(folders) {
   const byRoot = new Map();
+  const matchingRoots = new Set(folders.map((folder) => folder.root));
   for (const r of roots()) {
+    if (state.q && !matchingRoots.has(r.path)) continue;
     byRoot.set(r.path, {
-      root: r.path, dir: "", name: r.name, count: 0, ok: r.ok, children: new Map(),
+      root: r.path,
+      dir: "",
+      name: r.name,
+      count: 0,
+      modified: null,
+      ok: r.ok,
+      children: new Map(),
     });
   }
   for (const f of folders) {
     let node = byRoot.get(f.root);
     if (!node) {
-      node = { root: f.root, dir: "", name: f.root.split("/").pop(), count: 0, ok: true, children: new Map() };
+      node = {
+        root: f.root,
+        dir: "",
+        name: f.root.split("/").pop(),
+        count: 0,
+        modified: null,
+        ok: true,
+        children: new Map(),
+      };
       byRoot.set(f.root, node);
     }
     if (f.dir === "") {
       node.count = f.count;
+      const modified = Date.parse(f.mod_time);
+      node.modified = Number.isFinite(modified) ? modified : null;
       continue;
     }
     let cur = node;
@@ -116,50 +269,72 @@ function buildTree(folders) {
       path = path ? path + "/" + part : part;
       let child = cur.children.get(part);
       if (!child) {
-        child = { root: f.root, dir: path, name: part, count: 0, ok: true, children: new Map() };
+        child = {
+          root: f.root,
+          dir: path,
+          name: part,
+          count: 0,
+          modified: null,
+          ok: true,
+          children: new Map(),
+        };
         cur.children.set(part, child);
       }
       cur = child;
     }
     cur.count = f.count;
+    const modified = Date.parse(f.mod_time);
+    cur.modified = Number.isFinite(modified) ? modified : null;
   }
-  return [...byRoot.values()];
+  return [...byRoot.values()].sort(compareFolders);
 }
 
 function isCurrent(node) {
-  return state.view === "grid" && state.root === node.root && state.dir === node.dir;
+  return (
+    state.view === "grid" && state.root === node.root && state.dir === node.dir
+  );
 }
 
-function renderNode(node, depth) {
+function renderNode(node, depth, openNodes) {
   const key = nodeKey(node.root, node.dir);
   const wrap = el("div", "node" + (depth === 0 ? " root" : ""));
   wrap.style.setProperty("--depth", String(depth));
   const hasKids = node.children.size > 0;
-  if (hasKids && expanded.has(key)) wrap.classList.add("open");
+  if (hasKids && openNodes.has(key)) wrap.classList.add("open");
 
+  const row = el("div", "nrow");
   const label = el("button", "nlabel" + (node.ok ? "" : " offline"));
   if (isCurrent(node)) label.setAttribute("aria-current", "true");
-  const caret = el("span", "caret" + (hasKids ? "" : " leaf"));
+  const caret = el(
+    hasKids ? "button" : "span",
+    "caret" + (hasKids ? "" : " leaf"),
+  );
   if (hasKids) {
-    caret.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (expanded.has(key)) expanded.delete(key);
-      else expanded.add(key);
-      wrap.classList.toggle("open", expanded.has(key));
+    caret.append(icon("chevron"));
+    caret.setAttribute("aria-label", "Toggle " + node.name + " subfolders");
+    caret.setAttribute("aria-expanded", String(openNodes.has(key)));
+    caret.addEventListener("click", () => {
+      if (openNodes.has(key)) openNodes.delete(key);
+      else openNodes.add(key);
+      wrap.classList.toggle("open", openNodes.has(key));
+      caret.setAttribute("aria-expanded", String(openNodes.has(key)));
     });
-  }
-  label.append(caret, el("span", "nname", node.name));
+  } else caret.setAttribute("aria-hidden", "true");
+  label.append(
+    icon(isCurrent(node) ? "folderOpen" : "folder"),
+    el("span", "nname", node.name),
+  );
   if (node.count > 0) label.append(el("span", "n", fmt(node.count)));
   label.title = node.ok ? node.dir || node.root : "Not reachable";
   label.addEventListener("click", () => selectFolder(node.root, node.dir));
-  wrap.append(label);
+  row.append(caret, label);
+  wrap.append(row);
 
   if (hasKids) {
     const kids = el("div", "children");
-    const sorted = [...node.children.values()].sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }),
-    );
-    for (const child of sorted) kids.append(renderNode(child, depth + 1));
+    const sorted = [...node.children.values()].sort(compareFolders);
+    for (const child of sorted)
+      kids.append(renderNode(child, depth + 1, openNodes));
     wrap.append(kids);
   }
   return wrap;
@@ -167,42 +342,99 @@ function renderNode(node, depth) {
 
 async function renderTree() {
   const tree = $("#tree");
+  const render = ++treeRender;
+  tree.setAttribute("aria-busy", "true");
   let folders;
   try {
     folders = await ensureFolders();
   } catch {
+    if (render !== treeRender) return;
     tree.textContent = "";
     tree.append(el("div", "spnote", "Could not load folders."));
     return;
+  } finally {
+    if (render === treeRender) tree.setAttribute("aria-busy", "false");
   }
+  if (render !== treeRender) return;
   const list = roots();
   if (!treeTouched) {
     for (const r of list) expanded.add(nodeKey(r.path, ""));
     treeTouched = true;
   }
+  const search = state.q ? folderURL() : "";
+  if (search !== treeSearch) {
+    searchExpanded = new Set(folders.map((f) => nodeKey(f.root, f.dir)));
+    treeSearch = search;
+  }
+  const openNodes = search ? searchExpanded : expanded;
   // The folder on screen must be visible, whatever was folded before.
   if (state.root) {
-    expanded.add(nodeKey(state.root, ""));
+    openNodes.add(nodeKey(state.root, ""));
     let path = "";
     for (const part of state.dir ? state.dir.split("/") : []) {
       path = path ? path + "/" + part : part;
-      expanded.add(nodeKey(state.root, path));
+      openNodes.add(nodeKey(state.root, path));
     }
   }
 
+  const focusSort = document.activeElement?.id === "folder-sort";
   tree.textContent = "";
   const everything = el("div", "node");
   const all = el("button", "nlabel");
-  if (state.view === "grid" && !state.root && !state.dir) all.setAttribute("aria-current", "true");
-  all.append(el("span", "caret leaf"), el("span", "nname", "Everything"));
-  const total = folders.filter((f) => f.dir === "").reduce((n, f) => n + f.count, 0);
-  if (total > 0) all.append(el("span", "n", fmt(total)));
+  if (state.view === "grid" && !state.root && !state.dir)
+    all.setAttribute("aria-current", "true");
+  all.append(icon("grid"), el("span", "nname", "All media"));
+  const total = folders
+    .filter((f) => f.dir === "")
+    .reduce((n, f) => n + f.count, 0);
+  if (total > 0 || search) all.append(el("span", "n", fmt(total)));
   all.addEventListener("click", () => selectFolder("", ""));
   everything.append(all);
   tree.append(everything);
-  tree.append(el("div", "treehead", list.length === 1 ? "Folder" : "Folders"));
-  for (const node of buildTree(folders)) tree.append(renderNode(node, 0));
-  if (!list.length) tree.append(el("div", "spnote", "No folders yet — add one in Settings."));
+  const heading = el("div", "treehead");
+  heading.append(el("span", "", search ? "Matching folders" : "Folders"));
+  const add = el("button", "treeadd");
+  add.append(icon("plus"));
+  add.setAttribute("aria-label", "Manage folders");
+  add.title = "Manage folders";
+  add.addEventListener("click", () => {
+    closeSide();
+    setView("settings");
+  });
+  const sorting = el("label", "foldersort");
+  sorting.append(icon("sort"));
+  const select = el("select");
+  select.id = "folder-sort";
+  select.setAttribute("aria-label", "Sort folders");
+  for (const [value, label] of FOLDER_SORTS) {
+    const option = el("option", "", label);
+    option.value = value;
+    select.append(option);
+  }
+  select.value = folderSort;
+  select.title =
+    "Folders: " +
+    select.selectedOptions[0].textContent +
+    ". Modification dates use the newest matching file, including subfolders.";
+  select.addEventListener("change", () => {
+    folderSort = select.value;
+    try {
+      localStorage.setItem("shelf-folder-sort", folderSort);
+    } catch {
+      // Keep the current choice even if it cannot be saved.
+    }
+    renderTree();
+  });
+  sorting.append(select);
+  heading.append(sorting, add);
+  tree.append(heading);
+  const nodes = buildTree(folders);
+  for (const node of nodes) tree.append(renderNode(node, 0, openNodes));
+  if (!list.length)
+    tree.append(el("div", "spnote", "No folders yet — add one in Settings."));
+  else if (search && !nodes.length)
+    tree.append(el("div", "spnote", "No matching folders."));
+  if (focusSort) $("#folder-sort").focus({ preventScroll: true });
 }
 
 function selectFolder(root, dir) {
@@ -228,9 +460,13 @@ function renderSideLinks() {
   box.textContent = "";
   const alert = setupAlert();
   for (const [view, label] of Object.entries(VIEW_TITLES)) {
-    const b = el("button", "", label);
+    const b = iconLabel(el("button"), VIEW_ICONS[view], label);
     if (state.view === view) b.setAttribute("aria-current", "true");
-    if (view === "settings" && alert) b.prepend(el("span", "alert"));
+    if (view === "settings" && alert) {
+      const dot = el("span", "alert");
+      dot.title = alert;
+      b.append(dot);
+    }
     b.addEventListener("click", () => {
       closeSide();
       setView(view);
@@ -249,16 +485,23 @@ function renderSideStatus() {
   box.textContent = "";
   if (lastStats) {
     const t = lastStats.totals;
-    box.append(fmt(t.files) + (t.files === 1 ? " file" : " files") + " · " + fmtBytes(t.bytes));
+    const summary = el("div", "storage-summary");
+    const copy = el("div");
+    copy.append(
+      el("strong", "", fmt(t.files) + (t.files === 1 ? " file" : " files")),
+      el("span", "", fmtBytes(t.bytes) + " in your library"),
+    );
+    summary.append(icon("drive"), copy);
+    box.append(summary);
   }
   const alert = setupAlert();
   if (alert) {
-    const chip = el("button", "warn", alert);
+    const chip = iconLabel(el("button", "warn"), "alert", alert);
     chip.addEventListener("click", () => {
       closeSide();
       setView("settings");
     });
-    box.append(el("br"), chip);
+    box.append(chip);
   }
   renderSideLinks();
 }
@@ -267,36 +510,97 @@ function renderSideStatus() {
 function openSide() {
   document.body.classList.add("sideopen");
   $("#backdrop").hidden = false;
+  syncDrawer();
+  $("#sideclose").focus({ preventScroll: true });
 }
 function closeSide() {
+  const restoreFocus =
+    NARROW.matches && $("#side").contains(document.activeElement);
   document.body.classList.remove("sideopen");
   $("#backdrop").hidden = true;
+  syncDrawer();
+  if (restoreFocus) $("#menubtn").focus({ preventScroll: true });
 }
+function syncDrawer() {
+  const open = NARROW.matches && document.body.classList.contains("sideopen");
+  $("#side").inert = NARROW.matches && !open;
+  $("main").inert = open;
+  $("#menubtn").setAttribute("aria-expanded", String(open));
+}
+NARROW.addEventListener("change", () => {
+  closeSide();
+  syncDrawer();
+});
+syncDrawer();
 $("#menubtn").addEventListener("click", openSide);
 $("#sideclose").addEventListener("click", closeSide);
 $("#backdrop").addEventListener("click", closeSide);
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && document.body.classList.contains("sideopen")) closeSide();
+  if (e.key === "Escape" && document.body.classList.contains("sideopen"))
+    closeSide();
+  if (
+    e.key === "Tab" &&
+    NARROW.matches &&
+    document.body.classList.contains("sideopen")
+  ) {
+    const controls = [
+      ...$("#side").querySelectorAll("button, input, select"),
+    ].filter((node) => !node.disabled && node.getClientRects().length);
+    const first = controls[0],
+      last = controls[controls.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+  if (
+    (e.metaKey || e.ctrlKey) &&
+    e.key.toLowerCase() === "k" &&
+    !$("#lb").classList.contains("open")
+  ) {
+    e.preventDefault();
+    if (NARROW.matches) openSide();
+    $("#q").focus();
+    $("#q").select();
+  }
 });
+$("#searchkey").textContent = /Mac|iPhone|iPad/.test(navigator.platform)
+  ? "⌘ K"
+  : "Ctrl K";
 
 /* ---- Breadcrumbs ---- */
 function renderCrumbs() {
+  renderHeading();
   const box = $("#crumbs");
   box.textContent = "";
   const crumb = (label, onClick) => {
-    const b = el("button", "", label);
+    const b = el("button");
+    b.append(el("span", "crumb-label", label));
+    b.title = label;
     b.addEventListener("click", onClick);
-    if (box.children.length) box.append(el("span", "sep", "›"));
+    box.lastElementChild?.removeAttribute("aria-current");
+    b.setAttribute("aria-current", "page");
+    if (box.children.length) {
+      const sep = el("span", "sep");
+      sep.append(icon("chevron"));
+      box.append(sep);
+    } else b.prepend(icon("library"));
     box.append(b);
   };
-  crumb("Everything", () => selectFolder("", ""));
+  crumb("Library", () => selectFolder("", ""));
   if (state.view !== "grid") {
     crumb(VIEW_TITLES[state.view], () => {});
+    box.scrollLeft = box.scrollWidth;
     return;
   }
   if (state.root) {
     const r = roots().find((x) => x.path === state.root);
-    crumb(r ? r.name : state.root.split("/").pop(), () => selectFolder(state.root, ""));
+    crumb(r ? r.name : state.root.split("/").pop(), () =>
+      selectFolder(state.root, ""),
+    );
     let path = "";
     for (const part of state.dir ? state.dir.split("/") : []) {
       const here = path ? path + "/" + part : part;
@@ -305,58 +609,52 @@ function renderCrumbs() {
     }
   }
   if (state.q) crumb("“" + state.q + "”", () => {});
+  box.scrollLeft = box.scrollWidth;
 }
 
-/* ---- Tabs with live counts ---- */
+function renderHeading() {
+  const root = roots().find((r) => r.path === state.root);
+  const folder = state.dir.split("/").pop() || (root && root.name);
+  let title = folder || "Your library";
+  if (state.month) title = monthName(state.month);
+  if (state.q) title = "Search results";
+  if (state.view !== "grid") title = VIEW_TITLES[state.view];
+  $("#pagetitle").textContent = title;
+  document.title = title + " · Shelf";
+}
+
+/* ---- Stable media filters; counts live in tooltips and one total ---- */
 function renderTabs() {
   const tabs = $("#tabs");
-  tabs.textContent = "";
+  if (!tabs.children.length) {
+    for (const [key, label] of KIND_TABS) {
+      const b = el("button");
+      b.dataset.kind = key;
+      b.append(el("span", "tab-label", label));
+      b.setAttribute("aria-controls", "grid");
+      b.addEventListener("click", () => {
+        if (state.kind === key) return;
+        state.kind = key;
+        resetAndLoad();
+      });
+      tabs.append(b);
+    }
+  }
   for (const [key, label] of KIND_TABS) {
-    const b = el("button");
+    const b = tabs.querySelector('[data-kind="' + key + '"]');
     b.setAttribute("aria-pressed", String(state.kind === key));
-    b.append(label);
-    if (state.counts && state.counts[key] != null)
-      b.append(el("span", "n", fmt(state.counts[key])));
-    b.addEventListener("click", () => {
-      if (state.kind === key) return;
-      state.kind = key;
-      resetAndLoad();
-    });
-    tabs.append(b);
+    const count = state.counts?.[key];
+    b.title =
+      count == null
+        ? label
+        : label + ": " + fmt(count) + (count === 1 ? " file" : " files");
   }
 }
 
-/* ---- Icons / avatar ---- */
-const svgNS = "http://www.w3.org/2000/svg";
-function icon(kind) {
-  const s = document.createElementNS(svgNS, "svg");
-  s.setAttribute("viewBox", "0 0 12 12");
-  const p = document.createElementNS(svgNS, "path");
-  if (kind === "play") p.setAttribute("d", "M2.5 1.5 L10.5 6 L2.5 10.5 Z");
-  s.append(p);
-  return s;
-}
-
-function hueFor(key) {
-  let h = 0;
-  for (const c of key.toLowerCase()) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return h;
-}
-function avatarChar(str) {
-  const graphemes =
-    typeof Intl !== "undefined" && Intl.Segmenter
-      ? Array.from(new Intl.Segmenter().segment(str), (s) => s.segment)
-      : Array.from(str);
-  const letter = graphemes.find((g) => /\p{L}|\p{N}/u.test(g));
-  return (letter || graphemes[0] || "?").toUpperCase();
-}
-// Folders stand in for authors: the colour keys off the full folder path
-// so two "Season 1" folders under different shows still tell apart.
-const folderKey = (t) => t.root + "/" + (t.dir || "");
-function avatarEl(t) {
+/* ---- Folder icons ---- */
+function avatarEl() {
   const a = el("span", "avatar");
-  a.style.background = `hsl(${hueFor(folderKey(t))} 45% 45%)`;
-  a.textContent = avatarChar(t.folder || "?");
+  a.append(icon("folder"));
   return a;
 }
 
@@ -395,9 +693,11 @@ const mediaSrc = (m) => "/media/" + m.id + "/" + encodeURIComponent(m.name);
 // The query names the file's date and size: ids get reused after a
 // re-index, and the browser would otherwise keep showing last week's frame
 // for a different file.
-const thumbSrc = (m) => "/thumb/" + m.id + "?v=" + Date.parse(m.mod_time) + "-" + m.size;
+const thumbSrc = (m) =>
+  "/thumb/" + m.id + "?v=" + Date.parse(m.mod_time) + "-" + m.size;
 // Anything a browser cannot play as it is comes remuxed through ffmpeg.
-const streamSrc = (m, t) => "/stream/" + m.id + (t > 0 ? "?t=" + t.toFixed(1) : "");
+const streamSrc = (m, t) =>
+  "/stream/" + m.id + (t > 0 ? "?t=" + t.toFixed(1) : "");
 // iOS Safari draws nothing for a preload="metadata" video until it plays;
 // asking for the frame a tenth of a second in gives it something to paint.
 const videoSrc = (m) => mediaSrc(m) + "#t=0.1";
@@ -428,11 +728,22 @@ function badgeEl(t) {
 /* ---- Masonry columns ---- */
 let cols = [];
 let cardNodes = [];
+let density = "comfortable";
+try {
+  if (localStorage.getItem("shelf-density") === "compact") density = "compact";
+} catch {}
 function colCount() {
   if (NARROW.matches) return 2;
   const grid = $("#grid");
   const gap = parseFloat(getComputedStyle(grid).columnGap) || 12;
-  return Math.max(1, Math.min(5, Math.floor((grid.clientWidth + gap) / (230 + gap))));
+  const width = density === "compact" ? 180 : 250;
+  return Math.max(
+    1,
+    Math.min(
+      density === "compact" ? 7 : 5,
+      Math.floor((grid.clientWidth + gap) / (width + gap)),
+    ),
+  );
 }
 // Cards on their way out must stop loading: a browser keeps fetching a
 // removed image, and sixty of them queue ahead of the next listing.
@@ -444,9 +755,9 @@ function abandonCards() {
     v.load();
   }
 }
-function setupColumns() {
+function setupColumns(preserveCards = false) {
   const grid = $("#grid");
-  abandonCards();
+  if (!preserveCards) abandonCards();
   grid.textContent = "";
   cols = [];
   for (let i = 0; i < colCount(); i++) {
@@ -465,14 +776,30 @@ addEventListener("resize", () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
     if (!cardNodes.length || cols.length === colCount()) return;
-    setupColumns();
+    setupColumns(true);
     cardNodes.forEach(placeCard);
   }, 150);
 });
+function setDensity(next) {
+  density = next;
+  for (const value of ["comfortable", "compact"])
+    $("#" + value).setAttribute("aria-pressed", String(value === density));
+  try {
+    localStorage.setItem("shelf-density", density);
+  } catch {}
+  if (cardNodes.length && state.view === "grid") {
+    setupColumns(true);
+    cardNodes.forEach(placeCard);
+  }
+}
+for (const value of ["comfortable", "compact"])
+  $("#" + value).addEventListener("click", () => setDensity(value));
+setDensity(density);
 
 /* ---- Cards ---- */
 function card(t) {
   const c = el("button", "mcard");
+  c.setAttribute("aria-label", "Open " + t.title);
   // Look the index up at click time — deletions splice state.items.
   c.addEventListener("click", () => openLb(state.items.indexOf(t)));
 
@@ -485,7 +812,12 @@ function card(t) {
   const noPreview = () => {
     thumb.textContent = "";
     thumb.classList.add("pending");
-    thumb.append(KIND_LABELS[t.kind] + " · no preview");
+    const placeholder = el("div", "preview-placeholder");
+    placeholder.append(
+      icon(t.kind === "video" ? "video" : "photo"),
+      el("span", "", "Preview unavailable"),
+    );
+    thumb.append(placeholder);
     thumb.append(badgeEl(t), caption(t));
   };
   if (t.kind === "video" && t.direct) {
@@ -533,13 +865,21 @@ function card(t) {
   return c;
 }
 
-// The caption rides over the foot of the picture: folder and date always,
-// the file name on hover.
+// Show the date used for date sorting, with its meaning in the tooltip.
+const hasIndexDate = (t) => Date.parse(t.added_at) > 0;
 function caption(t) {
   const cap = el("div", "cap");
   cap.append(el("div", "capt", t.title));
   const m = el("div", "capm");
-  m.append(avatarEl(t), el("span", "folder", t.folder), el("span", "when", shortDate(t.mod_time)));
+  const indexed = state.sort === "added" && hasIndexDate(t);
+  const date = indexed ? t.added_at : t.mod_time;
+  const when = el(
+    "span",
+    "when",
+    (indexed ? "Indexed " : "") + shortDate(date),
+  );
+  when.title = (indexed ? "Indexed " : "Modified ") + fmtDate(date);
+  m.append(avatarEl(), el("span", "folder", t.folder), when);
   cap.append(m);
   return cap;
 }
@@ -584,7 +924,9 @@ function appendCards(items) {
 }
 
 function updateCount() {
-  $("#count").textContent = fmt(state.total) + (state.total === 1 ? " file" : " files");
+  $("#count").textContent =
+    fmt(state.total) + (state.total === 1 ? " file" : " files");
+  $("#count").title = $("#count").textContent;
 }
 
 async function loadPage(append) {
@@ -608,14 +950,56 @@ async function loadPage(append) {
   appendCards(data.items);
 
   if (!state.items.length) {
+    const hiddenByFeed =
+      state.kind === "all" &&
+      state.counts &&
+      ((!visibleInAll("photo") && state.counts.photo > 0) ||
+        (!visibleInAll("video") && state.counts.video > 0));
     grid.textContent = "";
-    grid.append(
+    const empty = el("div", "empty");
+    const mark = el("span", "empty-mark");
+    mark.append(icon(state.q ? "search" : "folder"));
+    empty.append(
+      mark,
       el(
-        "div",
-        "empty",
-        roots().length ? "Nothing here." : "No folders yet — add one in Settings.",
+        "h2",
+        "",
+        hiddenByFeed
+          ? "Your All feed is hidden"
+          : roots().length
+            ? "Nothing here yet"
+            : "A home for your photos and videos",
       ),
     );
+    empty.append(
+      el(
+        "p",
+        "",
+        hiddenByFeed
+          ? "These files are still available in the Photos and Videos tabs. Change your feed settings to show them here."
+          : roots().length
+            ? "Try a different folder or clear your filters."
+            : "Add your first folder to start exploring your library.",
+      ),
+    );
+    const action = iconLabel(
+      el("button", "btn quiet"),
+      hiddenByFeed ? "settings" : roots().length ? "refresh" : "folderPlus",
+      hiddenByFeed
+        ? "Feed settings"
+        : roots().length
+          ? "Show all media"
+          : "Add a folder",
+    );
+    action.addEventListener("click", () =>
+      hiddenByFeed
+        ? setView("settings")
+        : roots().length
+          ? goHome()
+          : setView("settings"),
+    );
+    empty.append(action);
+    grid.append(empty);
   }
   updateCount();
   $("#more").hidden = state.items.length >= data.total;
@@ -683,6 +1067,7 @@ function resetAndLoad() {
   loadGen++;
   state.page = 1;
   $("#refresh").hidden = true;
+  renderTabs();
   syncURL();
   renderCrumbs();
   renderTree();
@@ -700,7 +1085,7 @@ const monthName = (ym) => {
 function updateChip() {
   const mchip = $("#mchip");
   mchip.hidden = !state.month;
-  if (state.month) $("span", mchip).textContent = monthName(state.month);
+  if (state.month) $("#monthlabel").textContent = monthName(state.month);
 }
 
 /* ---- Views ---- */
@@ -741,6 +1126,7 @@ function goHome() {
   clearFilters();
   state.sort = "newest";
   $("#sort").value = "newest";
+  $("#sort").title = "Sort: Newest file date";
   closeSide();
   setView("grid");
 }
@@ -748,9 +1134,6 @@ function goHome() {
 async function renderSubpage() {
   const sp = $("#subpage");
   sp.textContent = "";
-  const head = el("div", "sphead");
-  head.append(el("h2", "sptitle", VIEW_TITLES[state.view] || ""));
-  sp.append(head);
   const body = el("div", "spbody");
   sp.append(body);
   body.append(el("div", "spnote", "Loading…"));
@@ -785,15 +1168,25 @@ async function renderTimeline(body) {
     return;
   }
   body.append(
-    el("p", "spsummary", "By file date" + (state.root ? ", within the selected folder" : "") + "."),
+    el(
+      "p",
+      "spsummary",
+      "By file date" + (state.root ? ", within the selected folder" : "") + ".",
+    ),
   );
   const max = Math.max(1, ...monthly.map((m) => m.count));
   for (const m of monthly) {
     body.append(
-      statRow("plain", [el("span", "slabel", monthName(m.month))], m.count, max, () => {
-        state.month = m.month;
-        setView("grid");
-      }),
+      statRow(
+        "plain",
+        [el("span", "slabel", monthName(m.month))],
+        m.count,
+        max,
+        () => {
+          state.month = m.month;
+          setView("grid");
+        },
+      ),
     );
   }
 }
@@ -803,17 +1196,92 @@ let logTimer = null;
 let logLastId = 0;
 function logRow(entry) {
   const row = el("div", "logrow " + entry.level);
-  const marks = { info: "•", warn: "!", error: "✗" };
+  const mark = el("span", "lmark");
+  mark.append(
+    icon(
+      entry.level === "warn"
+        ? "alert"
+        : entry.level === "error"
+          ? "close"
+          : "check",
+    ),
+  );
+  const message = el("div", "lmsg", entry.msg);
+  if (entry.file) {
+    const file = entry.file;
+    row.classList.add("has-file");
+    message.append(el("div", "logpath", file.path));
+    const actions = el("div", "logactions");
+    const find = iconLabel(el("button"), "search", "Find file");
+    find.addEventListener("click", () => {
+      clearTimeout(debounceTimer);
+      state.root = file.root;
+      state.dir = file.dir || "";
+      state.q = file.name;
+      state.month = "";
+      state.kind = file.kind === "video" ? "video" : "photo";
+      $("#q").value = state.q;
+      setView("grid");
+      scrollTo({ top: 0 });
+    });
+    const reveal = iconLabel(el("button"), "external", "Reveal file");
+    reveal.title =
+      "Show this file in the file manager on the machine running Shelf";
+    const feedback = el("span", "logfeedback");
+    feedback.setAttribute("role", "status");
+    reveal.addEventListener("click", async () => {
+      reveal.disabled = true;
+      feedback.textContent = "";
+      try {
+        const res = await fetch("/api/reveal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: file.id,
+            root: file.root,
+            rel_path: file.rel_path,
+          }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        feedback.textContent = "Shown in the file manager.";
+      } catch (error) {
+        feedback.textContent = error.message || "Could not reveal this file.";
+      } finally {
+        reveal.disabled = false;
+      }
+    });
+    actions.append(find, reveal, feedback);
+    message.append(actions);
+  }
+  if (entry.detail) {
+    const details = el("details", "logdetails");
+    details.append(
+      el("summary", "", "Error details"),
+      el("pre", "", entry.detail),
+    );
+    message.append(details);
+  }
   row.append(
-    el("span", "ltime", new Date(entry.time).toLocaleTimeString(undefined, { hour12: false })),
-    el("span", "lmark", marks[entry.level] || "•"),
-    el("span", "lmsg", entry.msg),
+    el(
+      "span",
+      "ltime",
+      new Date(entry.time).toLocaleTimeString(undefined, { hour12: false }),
+    ),
+    mark,
+    message,
   );
   return row;
 }
 async function renderActivity(body) {
   body.classList.add("wide");
   body.textContent = "";
+  body.append(
+    el(
+      "p",
+      "spsummary",
+      "Preview failures affect thumbnails, not the original files. Expand Error details to see the reason; use Find file or Reveal file to locate it.",
+    ),
+  );
   const list = el("div", "loglist");
   body.append(list);
   logLastId = 0;
@@ -833,7 +1301,8 @@ async function renderActivity(body) {
       return;
     }
     if (!data.items.length) {
-      if (!list.children.length) list.append(el("div", "spnote", "No activity yet."));
+      if (!list.children.length)
+        list.append(el("div", "spnote", "No activity yet."));
       return;
     }
     const note = list.querySelector(".spnote");
@@ -850,7 +1319,7 @@ async function renderActivity(body) {
 }
 
 /* ---- Settings: the folders Shelf indexes ---- */
-async function saveSettings(patch) {
+async function saveSettings(patch, { refresh = true } = {}) {
   let res;
   try {
     res = await fetch("/api/settings", {
@@ -862,8 +1331,15 @@ async function saveSettings(patch) {
     res = null;
   }
   if (!res || !res.ok) {
-    alert("Could not save — is Shelf running?");
+    if (refresh) alert("Could not save — is Shelf running?");
     return false;
+  }
+  if (!refresh) {
+    const saved = await res.json();
+    statusCache = { ...statusCache, all_feed: saved.all_feed };
+    foldersCache = null;
+    renderTree();
+    return true;
   }
   statusCache = await loadStatus(true);
   statsCache = null;
@@ -878,13 +1354,65 @@ async function renderSettings(body) {
   const status = await loadStatus(true);
   body.textContent = "";
 
+  const feedPanel = el("div", "panel");
+  feedPanel.append(iconLabel(el("h3"), "grid", "All feed"));
+  feedPanel.append(
+    el(
+      "p",
+      "",
+      "Choose what appears in the All tab. Photos and Videos always remain available in their own tabs.",
+    ),
+  );
+  const switches = [];
+  const feedback = el("div", "feed-feedback");
+  feedback.setAttribute("role", "status");
+  for (const [key, title, description, glyph] of [
+    ["videos", "Videos", "Show videos in All", "video"],
+    ["photos", "Photos", "Show photos and GIFs in All", "photo"],
+  ]) {
+    const row = el("label", "feed-option");
+    const copy = el("span", "feed-option-copy");
+    copy.append(el("strong", "", title), el("span", "", description));
+    const toggle = el("input", "feed-switch");
+    toggle.type = "checkbox";
+    toggle.id = "all-feed-" + key;
+    toggle.setAttribute("role", "switch");
+    toggle.setAttribute("aria-label", "Show " + key + " in All");
+    toggle.checked = allFeedSettings()[key];
+    switches.push(toggle);
+    toggle.addEventListener("change", async () => {
+      const previous = allFeedSettings()[key];
+      for (const input of switches) input.disabled = true;
+      feedback.textContent = "Saving…";
+      feedback.classList.remove("error");
+      try {
+        const saved = await saveSettings(
+          { all_feed: { [key]: toggle.checked } },
+          { refresh: false },
+        );
+        if (!saved) throw new Error("Could not save feed preferences");
+        feedback.textContent = "Saved";
+      } catch {
+        toggle.checked = previous;
+        feedback.textContent = "Could not save. Please try again.";
+        feedback.classList.add("error");
+      } finally {
+        for (const input of switches) input.disabled = false;
+      }
+    });
+    row.append(icon(glyph), copy, toggle);
+    feedPanel.append(row);
+  }
+  feedPanel.append(feedback);
+  body.append(feedPanel);
+
   const panel = el("div", "panel");
-  panel.append(el("h3", "", "Folders"));
+  panel.append(iconLabel(el("h3"), "folder", "Folders"));
   panel.append(
     el(
       "p",
       "",
-      "Each folder is indexed with everything under it. A path on this machine, or an smb://host/share URL — a share is mounted through Finder when it is not already.",
+      "Bring in photos and videos from a folder on this computer or your network. Subfolders are included automatically.",
     ),
   );
   const list = el("div");
@@ -893,11 +1421,14 @@ async function renderSettings(body) {
     const row = el("div", "rootrow");
     row.append(el("span", "dot" + (r.ok ? " ok" : " warn")));
     const p = el("span", "rpath", r.spec);
-    if (r.path && r.path !== r.spec) p.append(el("small", "", r.path + (r.ok ? "" : " — not reachable")));
+    if (r.path && r.path !== r.spec)
+      p.append(el("small", "", r.path + (r.ok ? "" : " — not reachable")));
     else if (!r.ok) p.append(el("small", "", "not reachable"));
     row.append(p);
     const rm = el("button", "", "Remove");
-    rm.addEventListener("click", () => saveSettings({ roots: specs.filter((s) => s !== r.spec) }));
+    rm.addEventListener("click", () =>
+      saveSettings({ roots: specs.filter((s) => s !== r.spec) }),
+    );
     row.append(rm);
     list.append(row);
   }
@@ -907,13 +1438,14 @@ async function renderSettings(body) {
   const field = el("div", "field");
   const input = el("input");
   input.type = "text";
+  input.setAttribute("aria-label", "Folder path or network share URL");
   input.placeholder = "/Volumes/Media or smb://nas/share";
   const add = () => {
     const spec = input.value.trim();
     if (!spec || specs.includes(spec)) return;
     saveSettings({ roots: specs.concat(spec) });
   };
-  const addBtn = el("button", "btn", "Add folder");
+  const addBtn = iconLabel(el("button", "btn"), "plus", "Add folder");
   addBtn.addEventListener("click", add);
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") add();
@@ -923,12 +1455,12 @@ async function renderSettings(body) {
   body.append(panel);
 
   const ign = el("div", "panel");
-  ign.append(el("h3", "", "Ignored folders"));
+  ign.append(iconLabel(el("h3"), "eyeOff", "Ignored folders"));
   ign.append(
     el(
       "p",
       "",
-      "Skipped when indexing, with everything inside them. A bare name (Trash) matches that folder anywhere; a path (Shows/Extras) matches that folder under any root.",
+      "Keep certain folders out of your library. Use a name like Trash to skip it everywhere, or a path like Shows/Extras for a specific folder.",
     ),
   );
   const ignored = status.ignore || [];
@@ -936,7 +1468,9 @@ async function renderSettings(body) {
     const row = el("div", "rootrow");
     row.append(el("span", "rpath", pattern));
     const rm = el("button", "", "Remove");
-    rm.addEventListener("click", () => saveSettings({ ignore: ignored.filter((s) => s !== pattern) }));
+    rm.addEventListener("click", () =>
+      saveSettings({ ignore: ignored.filter((s) => s !== pattern) }),
+    );
     row.append(rm);
     ign.append(row);
   }
@@ -944,13 +1478,14 @@ async function renderSettings(body) {
   const ifield = el("div", "field");
   const iinput = el("input");
   iinput.type = "text";
+  iinput.setAttribute("aria-label", "Folder name or path to ignore");
   iinput.placeholder = "Trash or Shows/Extras";
   const addIgnore = () => {
     const pattern = iinput.value.trim().replace(/^\/+|\/+$/g, "");
     if (!pattern || ignored.includes(pattern)) return;
     saveSettings({ ignore: ignored.concat(pattern) });
   };
-  const iadd = el("button", "btn quiet", "Ignore folder");
+  const iadd = iconLabel(el("button", "btn quiet"), "eyeOff", "Ignore folder");
   iadd.addEventListener("click", addIgnore);
   iinput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") addIgnore();
@@ -960,22 +1495,28 @@ async function renderSettings(body) {
   body.append(ign);
 
   const scan = el("div", "panel");
-  scan.append(el("h3", "", "Index"));
-  const when = status.last_scan && !status.last_scan.startsWith("0001")
-    ? "Last scanned " + new Date(status.last_scan).toLocaleString()
-    : "Not scanned yet";
+  scan.append(iconLabel(el("h3"), "refresh", "Library updates"));
+  const when =
+    status.last_scan && !status.last_scan.startsWith("0001")
+      ? "Last scanned " + new Date(status.last_scan).toLocaleString()
+      : "Not scanned yet";
   scan.append(
     el(
       "p",
       "",
-      when + ". Folders are re-scanned every few minutes; files that changed get their metadata read again.",
+      when +
+        ". Shelf checks your folders for changes automatically. You can also refresh them here.",
     ),
   );
-  const rescan = el("button", "btn quiet", status.scanning ? "Scanning…" : "Rescan now");
+  const rescan = iconLabel(
+    el("button", "btn quiet"),
+    "refresh",
+    status.scanning ? "Scanning…" : "Rescan now",
+  );
   rescan.disabled = status.scanning;
   rescan.addEventListener("click", async () => {
     rescan.disabled = true;
-    rescan.textContent = "Scanning…";
+    iconLabel(rescan, "refresh", "Scanning…");
     try {
       await fetch("/api/rescan", { method: "POST" });
     } catch {}
@@ -986,7 +1527,7 @@ async function renderSettings(body) {
 
   if (!status.ffmpeg) {
     const warn = el("div", "panel");
-    warn.append(el("h3", "", "ffmpeg not found"));
+    warn.append(iconLabel(el("h3"), "alert", "Video tools unavailable"));
     warn.append(
       el(
         "p",
@@ -1050,7 +1591,10 @@ function resetFeed() {
 function openFeed(i) {
   const box = $("#lbfeed");
   box.hidden = false;
-  feedObserver = new IntersectionObserver(onFeedPane, { root: box, threshold: 0.6 });
+  feedObserver = new IntersectionObserver(onFeedPane, {
+    root: box,
+    threshold: 0.6,
+  });
   appendPanes(state.items.length);
   fillLbSide();
   windowPanes(i);
@@ -1165,7 +1709,8 @@ function playFeedVideo(v, j) {
       v.play().catch(() => {});
     } else {
       setTimeout(() => {
-        if (feedLive && j === lbIndex && !userPaused && v.paused) playFeedVideo(v, j);
+        if (feedLive && j === lbIndex && !userPaused && v.paused)
+          playFeedVideo(v, j);
       }, 150);
     }
   });
@@ -1279,21 +1824,31 @@ function seekBy(step) {
   vidSeek(v, vidAt(v) + step);
   const jump = $("#lbjump");
   jump.className = "lb-jump on " + (step < 0 ? "back" : "fwd");
-  jump.textContent = (step < 0 ? "« " : "") + Math.abs(step) + "s" + (step < 0 ? "" : " »");
+  jump.textContent =
+    (step < 0 ? "« " : "") + Math.abs(step) + "s" + (step < 0 ? "" : " »");
   clearTimeout(jumpTimer);
   jumpTimer = setTimeout(() => jump.classList.remove("on"), 400);
 }
 
 /* ---- Video controls: one set, re-pointed at whichever video shows ---- */
 let ctlVideo = null;
-const CTL_EVENTS = ["timeupdate", "play", "pause", "loadedmetadata", "volumechange", "ended"];
+const CTL_EVENTS = [
+  "timeupdate",
+  "play",
+  "pause",
+  "loadedmetadata",
+  "volumechange",
+  "ended",
+];
 
 function currentVideo() {
   if ($("#lb").classList.contains("feed")) return paneVideo(lbIndex);
   return $("#lbmedia video");
 }
 function unbindControls() {
-  if (ctlVideo) for (const name of CTL_EVENTS) ctlVideo.removeEventListener(name, syncControls);
+  if (ctlVideo)
+    for (const name of CTL_EVENTS)
+      ctlVideo.removeEventListener(name, syncControls);
   ctlVideo = null;
 }
 function bindControls() {
@@ -1301,7 +1856,8 @@ function bindControls() {
   if (v !== ctlVideo) {
     unbindControls();
     ctlVideo = v;
-    if (v) for (const name of CTL_EVENTS) v.addEventListener(name, syncControls);
+    if (v)
+      for (const name of CTL_EVENTS) v.addEventListener(name, syncControls);
   }
   $("#lb").classList.toggle("streamed", !!(v && v.dataset.stream));
   syncControls();
@@ -1323,9 +1879,17 @@ function syncControls() {
   paintProgress(dur ? at / dur : 0);
   $("#lbat").textContent = fmtDuration(at * 1000);
   $("#lbdur").textContent = fmtDuration(dur * 1000);
-  $("#lbplay").textContent = v.paused ? "▶" : "❚❚";
+  const playState = v.paused ? "play" : "pause";
+  if ($("#lbplay").dataset.state !== playState) {
+    $("#lbplay").replaceChildren(icon(playState));
+    $("#lbplay").dataset.state = playState;
+  }
   $("#lbplay").setAttribute("aria-label", v.paused ? "Play" : "Pause");
   $("#lbmute").classList.toggle("muted", v.muted);
+  if ($("#lbmute").dataset.muted !== String(v.muted)) {
+    $("#lbmute").replaceChildren(icon(v.muted ? "volumeOff" : "volume"));
+    $("#lbmute").dataset.muted = String(v.muted);
+  }
   $("#lbmute").setAttribute("aria-label", v.muted ? "Unmute" : "Mute");
 }
 
@@ -1336,7 +1900,10 @@ function seekTo(e, commit) {
   const dur = vidDur(v);
   if (!Number.isFinite(dur) || dur <= 0) return;
   const rail = $("#lbseek").getBoundingClientRect();
-  const at = Math.min(1, Math.max(0, (e.clientX - rail.left) / (rail.width || 1)));
+  const at = Math.min(
+    1,
+    Math.max(0, (e.clientX - rail.left) / (rail.width || 1)),
+  );
   paintProgress(at);
   $("#lbat").textContent = fmtDuration(at * dur * 1000);
   // A file follows the finger as it drags; a stream would reopen ffmpeg
@@ -1435,21 +2002,24 @@ function detailsFor(t) {
 function fillLbSide() {
   const t = state.items[lbIndex];
   if (!t) return;
-  const av = avatarEl(t);
+  const av = avatarEl();
   av.id = "lbavatar";
   $("#lbavatar").replaceWith(av);
   $("#lbname").textContent = t.title;
   $("#lbhandle").textContent = t.dir ? t.dir : t.root_name;
-  $("#lbfilter").textContent = "More from " + t.folder;
+  iconLabel($("#lbfilter"), "folder", "More from " + t.folder);
   const details = $("#lbdetails");
   details.textContent = detailsFor(t) + "\nModified " + fmtDate(t.mod_time);
+  if (hasIndexDate(t))
+    details.textContent += "\nIndexed " + fmtDate(t.added_at);
   if (t.kind === "video" && !t.direct)
     details.textContent += "\nPlayed through ffmpeg";
-  $("#lbdate").textContent = t.name + " ↗";
+  iconLabel($("#lbdate"), "external", t.name);
   $("#lbdate").href = mediaSrc(t);
   hideConfirm();
   $("#lbprev").disabled = lbIndex <= 0;
-  $("#lbnext").disabled = lbIndex >= state.items.length - 1 && $("#more").hidden;
+  $("#lbnext").disabled =
+    lbIndex >= state.items.length - 1 && $("#more").hidden;
 }
 $("#lbclose").addEventListener("click", closeLb);
 $("#lb").addEventListener("click", (e) => {
@@ -1525,8 +2095,10 @@ async function deleteFile() {
   cardNodes.splice(lbIndex, 1);
   state.total = Math.max(0, state.total - 1);
   if (state.counts) {
-    for (const key of ["all", t.kind])
-      if (state.counts[key] > 0) state.counts[key]--;
+    const keys = new Set([t.kind]);
+    if (t.kind === "gif") keys.add("photo");
+    if (visibleInAll(t.kind)) keys.add("all");
+    for (const key of keys) if (state.counts[key] > 0) state.counts[key]--;
   }
   statsCache = null;
   foldersCache = null;
@@ -1557,6 +2129,7 @@ $("#lbdelete").addEventListener("click", deleteFile);
 /* ---- Index progress strip, and the library changing underneath ---- */
 let statusTimer = null;
 let knownVersion = null;
+let knownAllFeed = null;
 async function pollStatus() {
   let data = null;
   try {
@@ -1572,7 +2145,11 @@ async function pollStatus() {
     if (data.phase === "probing" && data.total > 0) {
       const pct = Math.floor((100 * data.done) / data.total);
       $("#ixtext").textContent =
-        "Reading metadata — " + fmt(data.done) + " of " + fmt(data.total) + " files";
+        "Reading metadata — " +
+        fmt(data.done) +
+        " of " +
+        fmt(data.total) +
+        " files";
       $("#ixpct").textContent = pct + "%";
       $("#ixbar").style.width = pct + "%";
     } else if (data.phase === "thumbs" && data.total > 0) {
@@ -1583,13 +2160,18 @@ async function pollStatus() {
       $("#ixbar").style.width = pct + "%";
     } else {
       $("#ixtext").textContent =
-        "Listing folders" + (data.done > 0 ? " — " + fmt(data.done) + " files so far" : "…");
+        "Listing folders" +
+        (data.done > 0 ? " — " + fmt(data.done) + " files so far" : "…");
       $("#ixpct").textContent = "";
       $("#ixbar").style.width = "0%";
     }
   }
   if (data) {
-    if (knownVersion != null && data.version !== knownVersion) {
+    const feedVersion = JSON.stringify(allFeedSettings());
+    if (
+      (knownVersion != null && data.version !== knownVersion) ||
+      (knownAllFeed != null && feedVersion !== knownAllFeed)
+    ) {
       statsCache = null;
       foldersCache = null;
       loadStats().catch(() => {});
@@ -1601,6 +2183,7 @@ async function pollStatus() {
       else renderSubpage();
     }
     knownVersion = data.version;
+    knownAllFeed = feedVersion;
     const rootsNow = JSON.stringify(data.roots.map((r) => [r.path, r.ok]));
     if (rootsNow !== renderedRoots) {
       renderedRoots = rootsNow;
@@ -1631,6 +2214,7 @@ $("#q").addEventListener("keydown", (e) => {
 });
 $("#sort").addEventListener("change", (e) => {
   state.sort = e.target.value;
+  e.target.title = "Sort: " + e.target.selectedOptions[0].textContent;
   resetAndLoad();
 });
 $("#mchip button").addEventListener("click", () => {
@@ -1657,12 +2241,14 @@ let viewFromURL = false;
   if (SORTS.includes(sort)) state.sort = sort;
   $("#q").value = state.q;
   $("#sort").value = state.sort;
+  $("#sort").title = "Sort: " + $("#sort").selectedOptions[0].textContent;
 })();
 
 (async function boot() {
   try {
     const status = await loadStatus();
     knownVersion = status.version;
+    knownAllFeed = JSON.stringify(allFeedSettings());
     renderedRoots = JSON.stringify(status.roots.map((r) => [r.path, r.ok]));
     if (state.root && !status.roots.some((r) => r.path === state.root)) {
       state.root = "";

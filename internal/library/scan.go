@@ -25,11 +25,12 @@ type Status struct {
 	Total    int    `json:"total"`
 	// Version bumps whenever a scan changed the library, so a page can tell
 	// its grid is stale without diffing anything.
-	Version  int64     `json:"version"`
-	LastScan time.Time `json:"last_scan"`
-	Roots    []Root    `json:"roots"`
-	Ignore   []string  `json:"ignore"`
-	FFmpeg   bool      `json:"ffmpeg"`
+	Version  int64          `json:"version"`
+	LastScan time.Time      `json:"last_scan"`
+	Roots    []Root         `json:"roots"`
+	Ignore   []string       `json:"ignore"`
+	FFmpeg   bool           `json:"ffmpeg"`
+	AllFeed  config.AllFeed `json:"all_feed"`
 }
 
 var (
@@ -44,7 +45,9 @@ func CurrentStatus() Status {
 	defer statusMu.Unlock()
 	s := status
 	s.Roots = Roots()
-	s.Ignore = config.Current().Ignore
+	cfg := config.Current()
+	s.Ignore = cfg.Ignore
+	s.AllFeed = cfg.AllFeed
 	s.FFmpeg = FFmpeg() != ""
 	return s
 }
@@ -127,14 +130,41 @@ func Scan() error {
 	}
 	defer running.Store(false)
 
-	gen := time.Now().UnixNano()
+	indexedAt := time.Now()
+	gen := indexedAt.UnixNano()
 	setStatus(func(s *Status) { s.Scanning, s.Phase, s.Done, s.Total = true, "listing", 0, 0 })
 	listed := 0
 	defer setStatus(func(s *Status) { s.Scanning, s.Phase = false, ""; s.LastScan = time.Now() })
 
 	changed := false
 	var toProbe []int64
-	for _, root := range Roots() {
+	roots := Roots()
+	paths := make([]string, 0, len(roots))
+	allResolved := true
+	for _, root := range roots {
+		if root.Path == "" {
+			allResolved = false
+		} else {
+			paths = append(paths, root.Path)
+		}
+	}
+	if allResolved {
+		q := store.DB.Where("1 = 1")
+		if len(paths) > 0 {
+			q = q.Where("root NOT IN ?", paths)
+		}
+		// Removed roots leave the index, while configured offline roots keep
+		// their rows. This does not remove anything from the file system.
+		res := q.Delete(&store.File{})
+		if res.Error != nil {
+			return eris.Wrap(res.Error, "failed to remove unconfigured roots from the index")
+		}
+		if res.RowsAffected > 0 {
+			changed = true
+			logx.Infof("Removed %d indexed entries from folders no longer in Settings", res.RowsAffected)
+		}
+	}
+	for _, root := range roots {
 		if !root.OK {
 			logx.Warnf("Skipping %s — not reachable", root.Spec)
 			continue
@@ -159,7 +189,9 @@ func Scan() error {
 				if res.RowsAffected == 0 {
 					row := store.File{
 						Root: root.Path, RelPath: e.rel, Dir: dirOf(e.rel), Name: e.name, Ext: e.ext, Kind: e.kind,
-						Size: e.size, ModTime: e.mod, AddedAt: time.Now(), Seen: gen,
+						// Files discovered together share an import time; their
+						// file dates decide the order, not the directory walk.
+						Size: e.size, ModTime: e.mod, AddedAt: indexedAt, Seen: gen,
 					}
 					if err := tx.Create(&row).Error; err != nil {
 						return err
@@ -208,7 +240,7 @@ func Scan() error {
 	}
 	// Previews last: the library is browsable already, and this is the
 	// slow part on a big share.
-	renderMissingThumbs()
+	renderMissingThumbs(gen)
 	return nil
 }
 
@@ -229,10 +261,14 @@ type dirEntry struct {
 
 // walkRoot lists every media file under root, one folder at a time.
 func walkRoot(root string) ([]found, error) {
+	return walkRootWith(root, listDir)
+}
+
+func walkRootWith(root string, readDir func(string) ([]dirEntry, error)) ([]found, error) {
 	var out []found
 	var walk func(dir, rel string) error
 	walk = func(dir, rel string) error {
-		entries, err := listDir(dir)
+		entries, err := readDir(dir)
 		if err != nil {
 			return err
 		}
@@ -247,7 +283,9 @@ func walkRoot(root string) ([]found, error) {
 					continue
 				}
 				if err := walk(filepath.Join(dir, name), childRel); err != nil {
-					logx.Warnf("Skipping %s: %v", childRel, err)
+					// A partial listing cannot prove that unseen files were
+					// deleted. Preserve this root until it can be fully read.
+					return eris.Wrapf(err, "failed to list %s", childRel)
 				}
 				continue
 			}

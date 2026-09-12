@@ -59,7 +59,11 @@ if it is not there already.
   "ignore": [
     "Trash",
     "Shows/Extras"
-  ]
+  ],
+  "all_feed": {
+    "photos": true,
+    "videos": true
+  }
 }
 ```
 
@@ -77,6 +81,11 @@ The folders Shelf indexes, each with everything under it. Two forms:
 A root that cannot be reached is shown as offline in the sidebar and
 Settings, and its files stay in the index untouched until it comes back.
 Nothing is ever pruned from a folder that could not be listed.
+An unreadable subfolder defers updates for that root until a complete scan
+can run. Preview generation uses only files seen in the current scan.
+Deleted files still waiting for a preview are skipped and removed from the
+index when their source root is reachable; an offline root retains its index.
+Removing a root in Settings removes its index entries without deleting files.
 
 Roots can also be added and removed in **Settings**, which rewrites this
 file and starts a scan.
@@ -95,6 +104,17 @@ scan, which starts as soon as the list is saved in Settings.
 Always skipped regardless of this list: hidden folders and files
 (`.something`), Synology's `@eaDir` and `#recycle`, `$RECYCLE.BIN`, and
 `System Volume Information`.
+
+### `all_feed`
+
+Choose which media types appear in the **All** tab with **Settings → All
+feed**. Photos (including GIFs) and videos each have a switch; both are on
+by default. Turning a type off hides it from All, including folder, search,
+and timeline views, while its dedicated **Photos** or **Videos** tab stays
+available. Both switches may be turned off.
+
+These preferences are saved in `config.json` and apply across devices.
+They do not remove files from the index or trigger a rescan.
 
 ### Files on disk
 
@@ -139,30 +159,60 @@ rather than the grid reflowing under you; an empty grid refreshes itself.
 
 ## The interface
 
+The interface uses monochrome light and dark themes, following the system
+appearance. A slim toolbar combines location, media filters, and controls on
+wide screens, with a compact two-row layout on smaller screens. Sidebar rows,
+cards, and settings use readable type, flat controls, and subtle dividers.
+
 ### Sidebar
 
-- **Search** matches file names and folder paths.
-- **Everything**, then a tree with each root as a top-level node and its
+- **Search** matches file names and folder paths. Press **⌘K** (Mac) or
+  **Ctrl+K** to focus it. The sidebar shows matching folders with counts
+  for the current media and month filters, and expands their ancestors.
+  Clear the search to restore the folder tree and its expanded state.
+- **All media**, then a tree with each root as a top-level node and its
   subfolders nested beneath, each with a count that includes everything
   under it. Carets fold and unfold; the folder on screen is highlighted and
   its ancestors stay open.
+- **Folder sorting** offers alphabetical A–Z or Z–A, recently or oldest
+  modified, and most items. It sorts roots and each set of subfolders while
+  preserving the hierarchy, and remembers your choice in this browser.
+  Dates use the newest matching file in each folder and its descendants;
+  dates and counts respect the current search, media, and month filters.
 - **Timeline** lists months by file date; a month filters the grid.
-- **Activity** is a live tail of Shelf's log.
-- **Settings** manages roots, ignored folders, and rescans, and warns if
-  ffmpeg is missing.
+- **Activity** is a live tail of Shelf's log. Each failed preview lists the
+  full file path, expandable error details, **Find file** to locate it in
+  Shelf, and **Reveal file** to show it on the machine running Shelf.
+  A preview failure means no thumbnail was created; the original is unchanged
+  and may still play. Activity keeps the latest 500 entries for this run.
+  To reproduce an earlier failure after restarting, use **Settings → Rescan now**.
+- **Settings** controls the media types shown in All, manages roots,
+  ignored folders, and rescans, and warns if ffmpeg is missing.
 - The foot shows the library's file count and total size, and a warning
   chip if there are no folders or one is offline.
 
 On screens narrower than 720px the sidebar becomes a drawer behind the
-menu button; choosing a folder closes it.
+menu button; choosing a folder closes it. The drawer supports keyboard
+focus navigation and closes with Escape.
 
 ### Grid
 
-- **Breadcrumbs** across the top show where you are (Everything › Movies ›
+- **Breadcrumbs** across the top show where you are (Library › Movies ›
   Shows › Bloods); each segment is clickable.
-- **Tabs** narrow to photos or videos, with live counts.
-- **Sort:** newest or oldest by file date, recently indexed, name, largest,
-  longest or shortest video.
+- **Tabs** narrow to photos (including GIFs) or videos. Counts are available
+  on hover, with one total in the desktop toolbar. Equal-width tabs and a
+  reserved count area keep controls in place when filters change. These tabs
+  show their media even when it is hidden from All.
+- **Sort:** newest or oldest file modification date, recently indexed, name,
+  largest, longest or shortest video. Recently indexed means when Shelf first
+  discovered a file, so an old file imported today can appear first. Files
+  discovered in the same scan share an index date and sort by file date within
+  that batch. Rescans preserve existing index dates; past index timestamps are
+  unchanged. Cards show the index date in this mode, and the viewer shows both
+  modification and index dates.
+- **Grid density:** choose comfortable or compact cards in the desktop
+  toolbar. Your preference is remembered on that browser; phones keep a
+  two-column layout.
 - Cards use a single small frame per file so a NAS of large files stays
   quick to page through. Videos show a play badge with duration and a
   resolution badge (720p, 1080p, 4K); browser-playable videos preview on
@@ -174,6 +224,9 @@ menu button; choosing a folder closes it.
 ### Viewer
 
 Click a card to open it.
+
+Videos scale to fill the available width or height, including small source
+videos, while preserving their aspect ratio without cropping.
 
 - **Desktop:** the file beside a panel with its name, folder (click to show
   that folder), dimensions, duration, size, codecs and date. Actions: more
@@ -224,11 +277,11 @@ scripted.
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/items?q=&root=&dir=&kind=&month=&sort=&page=` | Paged listing with per-kind counts. |
-| `GET /api/folders?root=` | Every folder with its rolled-up count. |
+| `GET /api/folders?q=&kind=&month=&root=&dir=` | Matching folders with counts and newest file modification dates rolled up through their ancestors. |
 | `GET /api/stats?root=` | Totals, size on disk, monthly histogram. |
 | `GET /api/status` | Scan state, roots and their reachability, ignore list, whether ffmpeg is present. |
 | `POST /api/rescan` | Start a scan. |
-| `GET /api/settings`, `POST /api/settings` | Read or patch `roots` and `ignore`. |
+| `GET /api/settings`, `POST /api/settings` | Read or patch `roots`, `ignore`, and `all_feed`. |
 | `POST /api/reveal {"id": n}` | Reveal a file in Finder. |
 | `POST /api/delete {"id": n}` | Delete a file from disk and the index. |
 | `GET /media/<id>/<name>` | The file itself, with range support. |

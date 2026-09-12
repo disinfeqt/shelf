@@ -108,10 +108,30 @@ func (f filters) base() *gorm.DB {
 
 func withKind(q *gorm.DB, kind string) *gorm.DB {
 	switch kind {
-	case "photo", "video", "gif":
+	case "photo":
+		return q.Where("kind IN ?", []string{"photo", "gif"})
+	case "video", "gif":
 		return q.Where("kind = ?", kind)
 	}
 	return q
+}
+
+func withAllFeed(q *gorm.DB, feed config.AllFeed) *gorm.DB {
+	kinds := []string{}
+	if feed.Photos {
+		kinds = append(kinds, "photo", "gif")
+	}
+	if feed.Videos {
+		kinds = append(kinds, "video")
+	}
+	return q.Where("kind IN ?", kinds)
+}
+
+func (f filters) listing(feed config.AllFeed) *gorm.DB {
+	if f.kind == "photo" || f.kind == "video" || f.kind == "gif" {
+		return withKind(f.base(), f.kind)
+	}
+	return withAllFeed(f.base(), feed)
 }
 
 func handleItems(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +145,7 @@ func handleItems(w http.ResponseWriter, r *http.Request) {
 	case "oldest":
 		order = "mod_time ASC, name ASC"
 	case "added":
-		order = "added_at DESC, mod_time DESC"
+		order = "added_at DESC, mod_time DESC, name COLLATE NOCASE ASC, id ASC"
 	case "name":
 		order = "name COLLATE NOCASE ASC"
 	case "largest":
@@ -140,8 +160,9 @@ func handleItems(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 
-	counts := map[string]int64{}
-	for _, kind := range []string{"all", "photo", "video", "gif"} {
+	feed := config.Current().AllFeed
+	counts := map[string]int64{"all": 0}
+	for _, kind := range []string{"photo", "video", "gif"} {
 		var n int64
 		if err := withKind(f.base(), kind).Count(&n).Error; err != nil {
 			logx.Error(eris.Wrap(err, "Failed to count files"))
@@ -150,13 +171,19 @@ func handleItems(w http.ResponseWriter, r *http.Request) {
 		}
 		counts[kind] = n
 	}
+	if feed.Photos {
+		counts["all"] += counts["photo"]
+	}
+	if feed.Videos {
+		counts["all"] += counts["video"]
+	}
 	total := counts["all"]
 	if f.kind == "photo" || f.kind == "video" || f.kind == "gif" {
 		total = counts[f.kind]
 	}
 
 	var rows []store.File
-	if err := withKind(f.base(), f.kind).Order(order).
+	if err := f.listing(feed).Order(order).
 		Offset((page - 1) * pageSize).Limit(pageSize).Find(&rows).Error; err != nil {
 		logx.Error(eris.Wrap(err, "Failed to list files"))
 		http.Error(w, "Database error", http.StatusInternalServerError)
@@ -172,34 +199,40 @@ func handleItems(w http.ResponseWriter, r *http.Request) {
 }
 
 type folderStat struct {
-	Root  string `json:"root"`
-	Dir   string `json:"dir"`
-	Name  string `json:"name"`
-	Count int    `json:"count"`
-	Depth int    `json:"depth"`
+	Root    string    `json:"root"`
+	Dir     string    `json:"dir"`
+	Name    string    `json:"name"`
+	Count   int       `json:"count"`
+	Depth   int       `json:"depth"`
+	ModTime time.Time `json:"mod_time"` // newest matching file, including descendants
 }
 
-// folderStats counts files per folder, each folder including everything
-// under it — the way the dir filter reads it.
-func folderStats(root string) ([]folderStat, error) {
+// folderStats rolls matching files up through their ancestor folders, using
+// the same search and media filters as the feed, without pagination.
+func folderStats(f filters) ([]folderStat, error) {
 	type row struct {
-		Root  string
-		Dir   string
-		Count int
+		Root     string
+		Dir      string
+		Count    int
+		Modified int64
 	}
 	var rows []row
-	q := store.DB.Model(&store.File{}).Select("root, dir, COUNT(*) AS count").Group("root, dir")
-	if root != "" {
-		q = q.Where("root = ?", root)
-	}
+	q := f.listing(config.Current().AllFeed).
+		Select("root, dir, COUNT(*) AS count, MAX(CAST(strftime('%s', mod_time) AS INTEGER)) AS modified").Group("root, dir")
 	if err := q.Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	totals := map[[2]string]int{}
+	totals := map[[2]string]row{}
 	for _, r := range rows {
 		dir := r.Dir
 		for {
-			totals[[2]string{r.Root, dir}] += r.Count
+			key := [2]string{r.Root, dir}
+			total, exists := totals[key]
+			total.Count += r.Count
+			if !exists || r.Modified > total.Modified {
+				total.Modified = r.Modified
+			}
+			totals[key] = total
 			if dir == "" {
 				break
 			}
@@ -211,13 +244,16 @@ func folderStats(root string) ([]folderStat, error) {
 		}
 	}
 	out := make([]folderStat, 0, len(totals))
-	for key, n := range totals {
+	for key, total := range totals {
 		name := path.Base(key[1])
 		depth := strings.Count(key[1], "/") + 1
 		if key[1] == "" {
 			name, depth = filepath.Base(key[0]), 0
 		}
-		out = append(out, folderStat{Root: key[0], Dir: key[1], Name: name, Count: n, Depth: depth})
+		out = append(out, folderStat{
+			Root: key[0], Dir: key[1], Name: name, Count: total.Count, Depth: depth,
+			ModTime: time.Unix(total.Modified, 0).UTC(),
+		})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Root != out[j].Root {
@@ -233,7 +269,7 @@ func handleFolders(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	stats, err := folderStats(strings.TrimSpace(r.URL.Query().Get("root")))
+	stats, err := folderStats(readFilters(r))
 	if err != nil {
 		logx.Error(eris.Wrap(err, "Failed to count folders"))
 		http.Error(w, "Database error", http.StatusInternalServerError)
@@ -357,12 +393,17 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 func handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, map[string]any{"roots": library.Roots(), "ignore": config.Current().Ignore})
+		cfg := config.Current()
+		writeJSON(w, map[string]any{"roots": library.Roots(), "ignore": cfg.Ignore, "all_feed": cfg.AllFeed})
 	case http.MethodPost:
-		// Each list is optional; one left out keeps its current value.
+		// Each setting is optional; one left out keeps its current value.
 		var patch struct {
-			Roots  *[]string `json:"roots"`
-			Ignore *[]string `json:"ignore"`
+			Roots   *[]string `json:"roots"`
+			Ignore  *[]string `json:"ignore"`
+			AllFeed *struct {
+				Photos *bool `json:"photos"`
+				Videos *bool `json:"videos"`
+			} `json:"all_feed"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -375,13 +416,23 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 		if patch.Ignore != nil {
 			next.Ignore = cleanList(*patch.Ignore)
 		}
+		if patch.AllFeed != nil {
+			if patch.AllFeed.Photos != nil {
+				next.AllFeed.Photos = *patch.AllFeed.Photos
+			}
+			if patch.AllFeed.Videos != nil {
+				next.AllFeed.Videos = *patch.AllFeed.Videos
+			}
+		}
 		if err := config.Update(config.DefaultPath, next); err != nil {
 			logx.Error(eris.Wrap(err, "Failed to save settings"))
 			http.Error(w, "Failed to save settings", http.StatusInternalServerError)
 			return
 		}
-		library.Rescan()
-		writeJSON(w, map[string]any{"roots": library.Roots(), "ignore": next.Ignore})
+		if patch.Roots != nil || patch.Ignore != nil {
+			library.Rescan()
+		}
+		writeJSON(w, map[string]any{"roots": library.Roots(), "ignore": next.Ignore, "all_feed": next.AllFeed})
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -402,10 +453,12 @@ func cleanList(in []string) []string {
 	return out
 }
 
-// fileFromBody reads {"id": n} and loads the row.
+// fileFromBody loads an ID, optionally checking its root and relative path.
 func fileFromBody(w http.ResponseWriter, r *http.Request) (*store.File, bool) {
 	var req struct {
-		ID int64 `json:"id"`
+		ID      int64  `json:"id"`
+		Root    string `json:"root"`
+		RelPath string `json:"rel_path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID <= 0 {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -414,6 +467,12 @@ func fileFromBody(w http.ResponseWriter, r *http.Request) (*store.File, bool) {
 	var f store.File
 	if err := store.DB.First(&f, req.ID).Error; err != nil {
 		http.Error(w, "File not found", http.StatusNotFound)
+		return nil, false
+	}
+	// Old Activity entries must not act on an unrelated file if SQLite has
+	// reused a deleted file's ID. Existing clients may omit this context.
+	if (req.Root != "" && req.Root != f.Root) || (req.RelPath != "" && req.RelPath != f.RelPath) {
+		http.Error(w, "File no longer matches this entry; find it in the library again", http.StatusNotFound)
 		return nil, false
 	}
 	return &f, true
