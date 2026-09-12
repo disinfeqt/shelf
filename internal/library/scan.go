@@ -20,7 +20,7 @@ import (
 // Status is what the dashboard shows while a scan runs.
 type Status struct {
 	Scanning bool   `json:"scanning"`
-	Phase    string `json:"phase"` // listing | probing | ""
+	Phase    string `json:"phase"` // listing | probing | thumbs | ""
 	Done     int    `json:"done"`
 	Total    int    `json:"total"`
 	// Version bumps whenever a scan changed the library, so a page can tell
@@ -206,6 +206,9 @@ func Scan() error {
 	if changed {
 		setStatus(func(s *Status) { s.Version++ })
 	}
+	// Previews last: the library is browsable already, and this is the
+	// slow part on a big share.
+	renderMissingThumbs()
 	return nil
 }
 

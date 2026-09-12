@@ -1,16 +1,12 @@
 package server
 
 import (
-	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/rotisserie/eris"
 
@@ -18,9 +14,6 @@ import (
 	"shelf/internal/logx"
 	"shelf/internal/store"
 )
-
-// CacheDir holds generated thumbnails, beside the database.
-var CacheDir = "cache"
 
 // fileFromPath reads the id out of /prefix/<id>[/anything] and loads it.
 func fileFromPath(w http.ResponseWriter, r *http.Request, prefix string) (*store.File, bool) {
@@ -66,17 +59,6 @@ func handleMedia(w http.ResponseWriter, r *http.Request) {
 
 // ---- Thumbnails --------------------------------------------------------
 
-// iOS draws nothing for a video it has not played, and a NAS full of large
-// photos is slow to page through at full size. ffmpeg renders one small
-// frame per file into the cache the first time it is asked for.
-const thumbWidth = 480
-
-var thumbSlots = make(chan struct{}, 4)
-
-func thumbPath(f *store.File) string {
-	return filepath.Join(CacheDir, "thumbs", fmt.Sprintf("%d-%d.jpg", f.ID, f.ModTime.Unix()))
-}
-
 func handleThumb(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -86,73 +68,19 @@ func handleThumb(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	cached := thumbPath(f)
-	if info, err := os.Stat(cached); err != nil || info.Size() == 0 {
-		if err := renderThumb(r.Context(), f, cached); err != nil {
-			logx.Error(eris.Wrapf(err, "Failed to render a thumbnail for %s", f.Name))
+	if !library.HasThumb(f) {
+		if err := library.RenderThumb(r.Context(), f, false); err != nil {
+			if r.Context().Err() == nil {
+				logx.Error(eris.Wrapf(err, "Failed to render a thumbnail for %s", f.Name))
+			}
 			http.NotFound(w, r)
 			return
 		}
 	}
-	w.Header().Set("Cache-Control", "public, max-age=604800")
-	http.ServeFile(w, r, cached)
-}
-
-func renderThumb(ctx context.Context, f *store.File, cached string) error {
-	bin := library.FFmpeg()
-	if bin == "" {
-		return eris.New("ffmpeg is not installed")
-	}
-	if err := os.MkdirAll(filepath.Dir(cached), 0o755); err != nil {
-		return eris.Wrap(err, "failed to create the thumbnail directory")
-	}
-	select {
-	case thumbSlots <- struct{}{}:
-	case <-ctx.Done():
-		return eris.Wrap(ctx.Err(), "gave up waiting for a thumbnail slot")
-	}
-	defer func() { <-thumbSlots }()
-	if info, err := os.Stat(cached); err == nil && info.Size() > 0 {
-		return nil // another request finished it while this one queued
-	}
-
-	started := time.Now()
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-	tmp, err := os.CreateTemp(filepath.Dir(cached), ".thumb-*.jpg")
-	if err != nil {
-		return eris.Wrap(err, "failed to create a temporary file")
-	}
-	_ = tmp.Close()
-	defer func() { _ = os.Remove(tmp.Name()) }()
-
-	args := []string{"-nostdin", "-loglevel", "error", "-y"}
-	if f.Kind == "video" {
-		// The opening frame of a film is black or a studio card; a tenth of
-		// the way in is a scene. Short clips get their first moments.
-		at := float64(f.DurationMs) / 1000 * 0.1
-		if at > 180 {
-			at = 180
-		}
-		if at < 0.5 {
-			at = 0.5
-		}
-		args = append(args, "-ss", strconv.FormatFloat(at, 'f', 2, 64))
-	}
-	args = append(args,
-		"-i", library.FullPath(f),
-		"-frames:v", "1",
-		"-vf", `scale=min(`+strconv.Itoa(thumbWidth)+`\,iw):-2`,
-		"-q:v", "5", "-f", "image2", tmp.Name(),
-	)
-	if out, err := exec.CommandContext(ctx, bin, args...).CombinedOutput(); err != nil {
-		return eris.Wrapf(err, "ffmpeg failed: %s", strings.TrimSpace(string(out)))
-	}
-	if err := os.Rename(tmp.Name(), cached); err != nil {
-		return eris.Wrap(err, "failed to store the thumbnail")
-	}
-	logx.Infof("  [Thumb] %s (%s)", f.Name, time.Since(started).Round(time.Millisecond))
-	return nil
+	// The page asks for /thumb/<id>?v=<date and size>, so a frame can be
+	// held for a long time and a changed file still gets a fresh one.
+	w.Header().Set("Cache-Control", "public, max-age=2592000")
+	http.ServeFile(w, r, library.ThumbPath(f))
 }
 
 // ---- Streaming ---------------------------------------------------------

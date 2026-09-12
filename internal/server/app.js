@@ -392,7 +392,10 @@ const mediaSrc = (m) => "/media/" + m.id + "/" + encodeURIComponent(m.name);
 // One small frame per file, rendered by the local app: the only preview a
 // phone can count on for a video, and far lighter than a NAS full of
 // full-size photos.
-const thumbSrc = (m) => "/thumb/" + m.id;
+// The query names the file's date and size: ids get reused after a
+// re-index, and the browser would otherwise keep showing last week's frame
+// for a different file.
+const thumbSrc = (m) => "/thumb/" + m.id + "?v=" + Date.parse(m.mod_time) + "-" + m.size;
 // Anything a browser cannot play as it is comes remuxed through ffmpeg.
 const streamSrc = (m, t) => "/stream/" + m.id + (t > 0 ? "?t=" + t.toFixed(1) : "");
 // iOS Safari draws nothing for a preload="metadata" video until it plays;
@@ -431,8 +434,19 @@ function colCount() {
   const gap = parseFloat(getComputedStyle(grid).columnGap) || 12;
   return Math.max(1, Math.min(5, Math.floor((grid.clientWidth + gap) / (230 + gap))));
 }
+// Cards on their way out must stop loading: a browser keeps fetching a
+// removed image, and sixty of them queue ahead of the next listing.
+function abandonCards() {
+  for (const img of $("#grid").querySelectorAll("img")) img.src = "";
+  for (const v of $("#grid").querySelectorAll("video")) {
+    v.removeAttribute("src");
+    v.removeAttribute("poster");
+    v.load();
+  }
+}
 function setupColumns() {
   const grid = $("#grid");
+  abandonCards();
   grid.textContent = "";
   cols = [];
   for (let i = 0; i < colCount(); i++) {
@@ -1559,6 +1573,12 @@ async function pollStatus() {
       const pct = Math.floor((100 * data.done) / data.total);
       $("#ixtext").textContent =
         "Reading metadata — " + fmt(data.done) + " of " + fmt(data.total) + " files";
+      $("#ixpct").textContent = pct + "%";
+      $("#ixbar").style.width = pct + "%";
+    } else if (data.phase === "thumbs" && data.total > 0) {
+      const pct = Math.floor((100 * data.done) / data.total);
+      $("#ixtext").textContent =
+        "Rendering previews — " + fmt(data.done) + " of " + fmt(data.total);
       $("#ixpct").textContent = pct + "%";
       $("#ixbar").style.width = pct + "%";
     } else {
