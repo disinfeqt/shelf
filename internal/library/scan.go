@@ -216,29 +216,30 @@ func dirOf(rel string) string {
 	return ""
 }
 
-// walkRoot lists every media file under root. Each folder is one listing,
-// but the size and date of every file is a separate stat — on a network
-// share that is a round-trip each, so they run several at a time.
+// dirEntry is one name in a folder, with what the scan needs to know.
+type dirEntry struct {
+	name  string
+	isDir bool
+	size  int64
+	mod   time.Time
+}
+
+// walkRoot lists every media file under root, one folder at a time.
 func walkRoot(root string) ([]found, error) {
-	var (
-		mu    sync.Mutex
-		out   []found
-		wg    sync.WaitGroup
-		slots = make(chan struct{}, listWorkers)
-	)
+	var out []found
 	var walk func(dir, rel string) error
 	walk = func(dir, rel string) error {
-		entries, err := os.ReadDir(dir)
+		entries, err := listDir(dir)
 		if err != nil {
 			return err
 		}
 		for _, d := range entries {
-			name := d.Name()
+			name := d.name
 			childRel := name
 			if rel != "" {
 				childRel = rel + "/" + name
 			}
-			if d.IsDir() {
+			if d.isDir {
 				if skipDir(name) || Ignored(childRel, name) {
 					continue
 				}
@@ -254,34 +255,16 @@ func walkRoot(root string) ([]found, error) {
 			if kind == "" {
 				continue
 			}
-			wg.Add(1)
-			slots <- struct{}{}
-			go func(path string) {
-				defer wg.Done()
-				defer func() { <-slots }()
-				info, err := d.Info()
-				if err != nil {
-					return
-				}
-				mu.Lock()
-				out = append(out, found{
-					rel: childRel, name: name, kind: kind, ext: ext,
-					size: info.Size(), mod: info.ModTime(),
-				})
-				n := len(out)
-				mu.Unlock()
-				setStatus(func(s *Status) { s.Done = n })
-			}(filepath.Join(dir, name))
+			out = append(out, found{rel: childRel, name: name, kind: kind, ext: ext, size: d.size, mod: d.mod})
 		}
+		n := len(out)
+		setStatus(func(s *Status) { s.Done = n })
 		return nil
 	}
 	err := walk(root, "")
-	wg.Wait()
 	sort.Slice(out, func(i, j int) bool { return out[i].rel < out[j].rel })
 	return out, err
 }
-
-const listWorkers = 8
 
 // A few probes at once: each is a header read over the network, and the
 // NAS answers several in the time it answers one.
