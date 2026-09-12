@@ -1,9 +1,9 @@
 package library
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -129,6 +129,7 @@ func Scan() error {
 
 	gen := time.Now().UnixNano()
 	setStatus(func(s *Status) { s.Scanning, s.Phase, s.Done, s.Total = true, "listing", 0, 0 })
+	listed := 0
 	defer setStatus(func(s *Status) { s.Scanning, s.Phase = false, ""; s.LastScan = time.Now() })
 
 	changed := false
@@ -138,11 +139,13 @@ func Scan() error {
 			logx.Warnf("Skipping %s — not reachable", root.Spec)
 			continue
 		}
+		setStatus(func(s *Status) { s.Done = listed })
 		entries, err := walkRoot(root.Path)
 		if err != nil {
 			logx.Error(eris.Wrapf(err, "Failed to list %s", root.Path))
 			continue
 		}
+		listed += len(entries)
 		// Index the listing in one transaction per root: a thousand upserts
 		// as separate writes would take longer than the walk did.
 		var added, updated int
@@ -213,52 +216,72 @@ func dirOf(rel string) string {
 	return ""
 }
 
+// walkRoot lists every media file under root. Each folder is one listing,
+// but the size and date of every file is a separate stat — on a network
+// share that is a round-trip each, so they run several at a time.
 func walkRoot(root string) ([]found, error) {
-	var out []found
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	var (
+		mu    sync.Mutex
+		out   []found
+		wg    sync.WaitGroup
+		slots = make(chan struct{}, listWorkers)
+	)
+	var walk func(dir, rel string) error
+	walk = func(dir, rel string) error {
+		entries, err := os.ReadDir(dir)
 		if err != nil {
-			if p == root {
-				return err
+			return err
+		}
+		for _, d := range entries {
+			name := d.Name()
+			childRel := name
+			if rel != "" {
+				childRel = rel + "/" + name
 			}
-			logx.Warnf("Skipping %s: %v", p, err)
-			if d != nil && d.IsDir() {
-				return fs.SkipDir
+			if d.IsDir() {
+				if skipDir(name) || Ignored(childRel, name) {
+					continue
+				}
+				if err := walk(filepath.Join(dir, name), childRel); err != nil {
+					logx.Warnf("Skipping %s: %v", childRel, err)
+				}
+				continue
 			}
-			return nil
-		}
-		if d.IsDir() {
-			if p == root {
-				return nil
+			if strings.HasPrefix(name, ".") {
+				continue
 			}
-			rel, _ := filepath.Rel(root, p)
-			if skipDir(d.Name()) || Ignored(filepath.ToSlash(rel), d.Name()) {
-				return fs.SkipDir
+			kind, ext := KindOf(name)
+			if kind == "" {
+				continue
 			}
-			return nil
+			wg.Add(1)
+			slots <- struct{}{}
+			go func(path string) {
+				defer wg.Done()
+				defer func() { <-slots }()
+				info, err := d.Info()
+				if err != nil {
+					return
+				}
+				mu.Lock()
+				out = append(out, found{
+					rel: childRel, name: name, kind: kind, ext: ext,
+					size: info.Size(), mod: info.ModTime(),
+				})
+				n := len(out)
+				mu.Unlock()
+				setStatus(func(s *Status) { s.Done = n })
+			}(filepath.Join(dir, name))
 		}
-		if strings.HasPrefix(d.Name(), ".") {
-			return nil
-		}
-		kind, ext := KindOf(d.Name())
-		if kind == "" {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		rel, err := filepath.Rel(root, p)
-		if err != nil {
-			return nil
-		}
-		out = append(out, found{
-			rel: filepath.ToSlash(rel), name: d.Name(), kind: kind, ext: ext,
-			size: info.Size(), mod: info.ModTime(),
-		})
 		return nil
-	})
+	}
+	err := walk(root, "")
+	wg.Wait()
+	sort.Slice(out, func(i, j int) bool { return out[i].rel < out[j].rel })
 	return out, err
 }
+
+const listWorkers = 8
 
 // A few probes at once: each is a header read over the network, and the
 // NAS answers several in the time it answers one.

@@ -1558,7 +1558,8 @@ async function pollStatus() {
       $("#ixpct").textContent = pct + "%";
       $("#ixbar").style.width = pct + "%";
     } else {
-      $("#ixtext").textContent = "Listing folders…";
+      $("#ixtext").textContent =
+        "Listing folders" + (data.done > 0 ? " — " + fmt(data.done) + " files so far" : "…");
       $("#ixpct").textContent = "";
       $("#ixbar").style.width = "0%";
     }
