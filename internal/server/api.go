@@ -357,31 +357,49 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 func handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, map[string]any{"roots": library.Roots()})
+		writeJSON(w, map[string]any{"roots": library.Roots(), "ignore": config.Current().Ignore})
 	case http.MethodPost:
+		// Each list is optional; one left out keeps its current value.
 		var patch struct {
-			Roots []string `json:"roots"`
+			Roots  *[]string `json:"roots"`
+			Ignore *[]string `json:"ignore"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil || patch.Roots == nil {
+		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
-		var roots []string
-		for _, spec := range patch.Roots {
-			if spec = strings.TrimSpace(spec); spec != "" {
-				roots = append(roots, spec)
-			}
+		next := config.Current()
+		if patch.Roots != nil {
+			next.Roots = cleanList(*patch.Roots)
 		}
-		if err := config.Update(config.DefaultPath, config.Config{Roots: roots}); err != nil {
+		if patch.Ignore != nil {
+			next.Ignore = cleanList(*patch.Ignore)
+		}
+		if err := config.Update(config.DefaultPath, next); err != nil {
 			logx.Error(eris.Wrap(err, "Failed to save settings"))
 			http.Error(w, "Failed to save settings", http.StatusInternalServerError)
 			return
 		}
 		library.Rescan()
-		writeJSON(w, map[string]any{"roots": library.Roots()})
+		writeJSON(w, map[string]any{"roots": library.Roots(), "ignore": next.Ignore})
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// cleanList trims entries and drops blanks and repeats, keeping order.
+func cleanList(in []string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 // fileFromBody reads {"id": n} and loads the row.

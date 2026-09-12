@@ -687,8 +687,24 @@ async function renderFolders(body) {
       },
     );
     row.style.setProperty("--depth", String(f.depth));
-    body.append(row);
+    if (!f.dir) {
+      body.append(row);
+      continue;
+    }
+    // The root itself cannot be ignored; every folder under it can.
+    const line = el("div", "srowline");
+    const ignore = el("button", "ignorebtn", "Ignore");
+    ignore.title = "Skip this folder when indexing";
+    ignore.addEventListener("click", async () => {
+      ignore.disabled = true;
+      const current = (statusCache && statusCache.ignore) || [];
+      if (!(await saveIgnore(current.concat(f.dir)))) ignore.disabled = false;
+    });
+    line.append(row, ignore);
+    body.append(line);
   }
+  const note = el("p", "spnote", "Ignored folders drop out of the library on the next scan, which starts right away.");
+  body.append(note);
 }
 
 async function renderKinds(body) {
@@ -792,6 +808,28 @@ async function renderActivity(body) {
 }
 
 /* ---- Settings: the folders Shelf indexes ---- */
+async function saveIgnore(next) {
+  let res;
+  try {
+    res = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ignore: next }),
+    });
+  } catch {
+    res = null;
+  }
+  if (!res || !res.ok) {
+    alert("Could not save — is Shelf running?");
+    return false;
+  }
+  statusCache = await loadStatus(true);
+  statsCache = null;
+  foldersCache = null;
+  if (state.view !== "grid") renderSubpage();
+  return true;
+}
+
 async function renderSettings(body) {
   const status = await loadStatus(true);
   body.textContent = "";
@@ -861,6 +899,43 @@ async function renderSettings(body) {
   field.append(input, addBtn);
   panel.append(field);
   body.append(panel);
+
+  const ign = el("div", "panel");
+  ign.append(el("h3", "", "Ignored folders"));
+  ign.append(
+    el(
+      "p",
+      "",
+      "Skipped when indexing, with everything inside them. A bare name (Trash) matches that folder anywhere; a path (Shows/Extras) matches that folder under any root.",
+    ),
+  );
+  const ignored = status.ignore || [];
+  for (const pattern of ignored) {
+    const row = el("div", "rootrow");
+    row.append(el("span", "rpath", pattern));
+    const rm = el("button", "", "Remove");
+    rm.addEventListener("click", () => saveIgnore(ignored.filter((s) => s !== pattern)));
+    row.append(rm);
+    ign.append(row);
+  }
+  if (!ignored.length) ign.append(el("p", "", "Nothing ignored."));
+  const ifield = el("div", "field");
+  const iinput = el("input");
+  iinput.type = "text";
+  iinput.placeholder = "Trash or Shows/Extras";
+  const addIgnore = () => {
+    const pattern = iinput.value.trim().replace(/^\/+|\/+$/g, "");
+    if (!pattern || ignored.includes(pattern)) return;
+    saveIgnore(ignored.concat(pattern));
+  };
+  const iadd = el("button", "btn quiet", "Ignore folder");
+  iadd.addEventListener("click", addIgnore);
+  iinput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addIgnore();
+  });
+  ifield.append(iinput, iadd);
+  ign.append(ifield);
+  body.append(ign);
 
   const scan = el("div", "panel");
   scan.append(el("h3", "", "Index"));

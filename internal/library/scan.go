@@ -12,6 +12,7 @@ import (
 	"github.com/rotisserie/eris"
 	"gorm.io/gorm"
 
+	"shelf/internal/config"
 	"shelf/internal/logx"
 	"shelf/internal/store"
 )
@@ -27,6 +28,7 @@ type Status struct {
 	Version  int64     `json:"version"`
 	LastScan time.Time `json:"last_scan"`
 	Roots    []Root    `json:"roots"`
+	Ignore   []string  `json:"ignore"`
 	FFmpeg   bool      `json:"ffmpeg"`
 }
 
@@ -42,6 +44,7 @@ func CurrentStatus() Status {
 	defer statusMu.Unlock()
 	s := status
 	s.Roots = Roots()
+	s.Ignore = config.Current().Ignore
 	s.FFmpeg = FFmpeg() != ""
 	return s
 }
@@ -79,6 +82,30 @@ func StartWorker(interval time.Duration) {
 // bins, and macOS metadata.
 func skipDir(name string) bool {
 	return strings.HasPrefix(name, ".") || name == "@eaDir" || name == "#recycle" || name == "$RECYCLE.BIN" || name == "System Volume Information"
+}
+
+// Ignored reports whether the user asked to skip this folder: by bare name
+// anywhere, or by its path from the root. Case-insensitive, since the
+// folders usually live on a share that is.
+func Ignored(rel, name string) bool {
+	for _, pattern := range config.Current().Ignore {
+		pattern = strings.Trim(strings.TrimSpace(pattern), "/")
+		if pattern == "" {
+			continue
+		}
+		if strings.Contains(pattern, "/") {
+			if strings.EqualFold(rel, pattern) || hasFoldPrefix(rel, pattern+"/") {
+				return true
+			}
+		} else if strings.EqualFold(name, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasFoldPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
 type found struct {
@@ -200,7 +227,11 @@ func walkRoot(root string) ([]found, error) {
 			return nil
 		}
 		if d.IsDir() {
-			if p != root && skipDir(d.Name()) {
+			if p == root {
+				return nil
+			}
+			rel, _ := filepath.Rel(root, p)
+			if skipDir(d.Name()) || Ignored(filepath.ToSlash(rel), d.Name()) {
 				return fs.SkipDir
 			}
 			return nil

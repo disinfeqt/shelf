@@ -17,7 +17,7 @@ func TestScanIndexesAndPrunes(t *testing.T) {
 	t.Cleanup(func() { store.DB = original })
 	require.NoError(t, store.Init(":memory:"))
 	root := t.TempDir()
-	t.Cleanup(config.SwapForTest(config.Config{Roots: []string{root}}))
+	t.Cleanup(config.SwapForTest(config.Config{Roots: []string{root}, Ignore: []string{"trash", "Shows/Extras"}}))
 
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "Shows", ".hidden"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "@eaDir"), 0o755))
@@ -29,6 +29,10 @@ func TestScanIndexesAndPrunes(t *testing.T) {
 	write("Shows/.hidden/c.jpg")
 	write("@eaDir/d.jpg")
 	write("notes.txt")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "Shows", "Extras", "deep"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "Shows", "Trash"), 0o755))
+	write("Shows/Extras/deep/e.jpg")
+	write("Shows/Trash/f.jpg")
 
 	require.NoError(t, Scan())
 	var rows []store.File
@@ -50,6 +54,15 @@ func TestScanIndexesAndPrunes(t *testing.T) {
 	assert.EqualValues(t, 2, CurrentStatus().Version)
 	require.NoError(t, Scan())
 	assert.EqualValues(t, 2, CurrentStatus().Version)
+}
+
+func TestIgnored(t *testing.T) {
+	t.Cleanup(config.SwapForTest(config.Config{Ignore: []string{"trash", "Shows/Extras/", " "}}))
+	assert.True(t, Ignored("a/b/Trash", "Trash"))
+	assert.True(t, Ignored("shows/extras", "extras"))
+	assert.True(t, Ignored("Shows/Extras/deep", "deep"))
+	assert.False(t, Ignored("Shows/Extras2", "Extras2"))
+	assert.False(t, Ignored("Extras", "Extras"))
 }
 
 func TestKindOf(t *testing.T) {

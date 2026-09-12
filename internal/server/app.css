@@ -552,6 +552,41 @@ header.page h1 button:focus-visible {
   color: var(--muted);
   padding: 12px 0;
 }
+.srowline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.srowline .srow {
+  flex: 1;
+  min-width: 0;
+}
+.ignorebtn {
+  flex: none;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 3px 9px;
+  cursor: pointer;
+  opacity: 0;
+}
+.srowline:hover .ignorebtn,
+.ignorebtn:focus-visible,
+.ignorebtn:disabled {
+  opacity: 1;
+}
+.ignorebtn:hover {
+  color: var(--ink);
+  border-color: var(--border);
+}
+@media (hover: none) {
+  .ignorebtn {
+    opacity: 1;
+  }
+}
 .spbody.wide {
   max-width: 960px;
 }

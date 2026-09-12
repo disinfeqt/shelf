@@ -14,6 +14,10 @@ import (
 // share's mount point under /Volumes and mount it when needed.
 type Config struct {
 	Roots []string `json:"roots"`
+	// Ignore lists folders the scanner skips. A bare name ("Trash") skips
+	// any folder with that name at any depth; a path ("Shows/Extras") skips
+	// that folder under any root, and everything beneath it.
+	Ignore []string `json:"ignore"`
 }
 
 const DefaultPath = "config.json"
@@ -24,7 +28,7 @@ var (
 )
 
 func Default() Config {
-	return Config{Roots: []string{}}
+	return Config{Roots: []string{}, Ignore: []string{}}
 }
 
 // Load reads the file, creating a default one when it does not exist yet.
@@ -52,6 +56,9 @@ func Current() Config {
 func Update(path string, next Config) error {
 	if next.Roots == nil {
 		next.Roots = []string{}
+	}
+	if next.Ignore == nil {
+		next.Ignore = []string{}
 	}
 	mu.Lock()
 	defer mu.Unlock()
