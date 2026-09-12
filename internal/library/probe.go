@@ -7,6 +7,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,26 +78,35 @@ func FFmpeg() string {
 	return ffmpegP
 }
 
-// probe fills in the metadata fields of f from the file on disk.
-func probe(f *store.File) {
+// probe fills in the metadata fields of f from the file on disk. It
+// returns an error only when the file is not there to open; a header it
+// cannot make sense of just leaves the fields empty.
+func probe(f *store.File) error {
 	full := filepath.Join(f.Root, filepath.FromSlash(f.RelPath))
+	fh, err := os.Open(full)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return err
+		}
+		fh = nil
+	} else {
+		defer fh.Close()
+	}
 	switch f.Kind {
 	case "photo", "gif":
-		f.Width, f.Height = imageDimensions(full)
+		if fh != nil {
+			f.Width, f.Height = imageDimensions(fh)
+		}
 		f.Direct = true
 	case "video":
 		probeVideo(f, full)
 	}
 	f.Probed = true
+	return nil
 }
 
-func imageDimensions(path string) (int, int) {
-	fh, err := os.Open(path)
-	if err != nil {
-		return 0, 0
-	}
-	defer fh.Close()
-	cfg, _, err := image.DecodeConfig(fh)
+func imageDimensions(r io.Reader) (int, int) {
+	cfg, _, err := image.DecodeConfig(r)
 	if err != nil {
 		return 0, 0
 	}

@@ -138,6 +138,66 @@ func TestScanRemovesUnconfiguredRootsWithoutDeletingTheirFiles(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestScanSkipsNamesTheShareListsButCannotOpen(t *testing.T) {
+	originalDB, originalStatus, originalReadDir := store.DB, CurrentStatus(), readDirFn
+	t.Cleanup(func() {
+		store.DB = originalDB
+		readDirFn = originalReadDir
+		setStatus(func(s *Status) { *s = originalStatus })
+		unreachableMu.Lock()
+		unreachable = map[string]found{}
+		unreachableMu.Unlock()
+	})
+	require.NoError(t, store.Init(":memory:"))
+	root := t.TempDir()
+	cfg := config.Default()
+	cfg.Roots = []string{root}
+	t.Cleanup(config.SwapForTest(cfg))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "real.gif"), []byte("synthetic gif"), 0o644))
+
+	// The fake share lists a name that cannot then be opened, the way the
+	// macOS SMB client does for some Windows-side names.
+	ghost := &dirEntry{name: "ghost 22\u223614.mp4", size: 7, mod: time.Date(2017, 11, 30, 22, 14, 0, 0, time.UTC)}
+	readDirFn = func(dir string) ([]dirEntry, error) {
+		entries, err := listDir(dir)
+		if err == nil && dir == root && ghost != nil {
+			entries = append(entries, *ghost)
+		}
+		return entries, err
+	}
+	names := func() []string {
+		var rows []store.File
+		require.NoError(t, store.DB.Order("rel_path").Find(&rows).Error)
+		var out []string
+		for _, r := range rows {
+			out = append(out, r.RelPath)
+		}
+		return out
+	}
+
+	require.NoError(t, Scan())
+	assert.Equal(t, []string{"real.gif"}, names())
+	assert.True(t, isUnreachable(root, found{rel: ghost.name, size: ghost.size, mod: ghost.mod}))
+	version := CurrentStatus().Version
+
+	// Listed again unchanged: not retried, nothing changes.
+	require.NoError(t, Scan())
+	assert.Equal(t, []string{"real.gif"}, names())
+	assert.Equal(t, version, CurrentStatus().Version)
+
+	// A changed listing is worth another try; still unreachable, still skipped.
+	ghost.size = 8
+	require.NoError(t, Scan())
+	assert.Equal(t, []string{"real.gif"}, names())
+	assert.True(t, isUnreachable(root, found{rel: ghost.name, size: 8, mod: ghost.mod}))
+
+	// Once the listing drops the name, it is forgotten.
+	gone := *ghost
+	ghost = nil
+	require.NoError(t, Scan())
+	assert.False(t, isUnreachable(root, found{rel: gone.name, size: gone.size, mod: gone.mod}))
+}
+
 func TestWalkDoesNotTreatUnreadableSubfoldersAsComplete(t *testing.T) {
 	root := t.TempDir()
 	_, err := walkRootWith(root, func(dir string) ([]dirEntry, error) {

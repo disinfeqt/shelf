@@ -139,8 +139,11 @@ cannot display it.
 
 ### The scan
 
-Runs at startup, every `-rescan` interval, and on **Rescan now** in
-Settings. Two passes:
+Runs at startup, every `-rescan` interval, on **Rescan now** in Settings,
+and when the page is opened or comes back into view, if the last scan is
+more than a minute old. The share cannot announce new files, so this is
+what keeps the library fresh while costing nothing when nobody is looking.
+Two passes:
 
 1. **Listing.** Every folder under every reachable root is read once. On
    macOS this uses `getattrlistbulk`, which returns names, sizes and dates

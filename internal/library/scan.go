@@ -120,6 +120,58 @@ type found struct {
 	mod  time.Time
 }
 
+// Names a share lists but will not open. The macOS SMB client shows some
+// Windows-side names it then cannot resolve, so without this such a file
+// would be added on every scan and dropped again at the first read.
+// Remembered until the listing shows the entry changed or gone.
+var (
+	unreachableMu sync.Mutex
+	unreachable   = map[string]found{}
+)
+
+func unreachableKey(root, rel string) string { return root + "\x00" + rel }
+
+// markUnreachable remembers e and reports whether it is new.
+func markUnreachable(root string, e found) bool {
+	unreachableMu.Lock()
+	defer unreachableMu.Unlock()
+	key := unreachableKey(root, e.rel)
+	prev, known := unreachable[key]
+	unreachable[key] = e
+	return !known || prev.size != e.size || !prev.mod.Equal(e.mod)
+}
+
+// isUnreachable reports whether e is a known unreachable entry, unchanged.
+func isUnreachable(root string, e found) bool {
+	unreachableMu.Lock()
+	defer unreachableMu.Unlock()
+	prev, known := unreachable[unreachableKey(root, e.rel)]
+	return known && prev.size == e.size && prev.mod.Equal(e.mod)
+}
+
+// forgetUnreachableNotListed drops remembered names under root that the
+// listing no longer shows, so a file that comes back is tried again.
+func forgetUnreachableNotListed(root string, entries []found) {
+	unreachableMu.Lock()
+	defer unreachableMu.Unlock()
+	prefix := unreachableKey(root, "")
+	var listed map[string]bool
+	for key := range unreachable {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		if listed == nil {
+			listed = make(map[string]bool, len(entries))
+			for _, e := range entries {
+				listed[e.rel] = true
+			}
+		}
+		if !listed[key[len(prefix):]] {
+			delete(unreachable, key)
+		}
+	}
+}
+
 // Scan walks every reachable root, records what is there, drops what is
 // gone, and reads metadata for anything new or changed. Two passes: the
 // walk is cheap (one listing per folder) and gives the total, so the slow
@@ -138,6 +190,7 @@ func Scan() error {
 
 	changed := false
 	var toProbe []int64
+	listStart := time.Now()
 	roots := Roots()
 	paths := make([]string, 0, len(roots))
 	allResolved := true
@@ -176,6 +229,7 @@ func Scan() error {
 			continue
 		}
 		listed += len(entries)
+		forgetUnreachableNotListed(root.Path, entries)
 		// Index the listing in one transaction per root: a thousand upserts
 		// as separate writes would take longer than the walk did.
 		var added, updated int
@@ -187,6 +241,9 @@ func Scan() error {
 					return res.Error
 				}
 				if res.RowsAffected == 0 {
+					if isUnreachable(root.Path, e) {
+						continue
+					}
 					row := store.File{
 						Root: root.Path, RelPath: e.rel, Dir: dirOf(e.rel), Name: e.name, Ext: e.ext, Kind: e.kind,
 						// Files discovered together share an import time; their
@@ -230,6 +287,8 @@ func Scan() error {
 		}
 	}
 
+	logx.Infof("Listed %d files in %s", listed, time.Since(listStart).Round(time.Millisecond))
+
 	if len(toProbe) > 0 {
 		setStatus(func(s *Status) { s.Phase, s.Done, s.Total = "probing", 0, len(toProbe) })
 		probeAll(toProbe)
@@ -259,9 +318,12 @@ type dirEntry struct {
 	mod   time.Time
 }
 
+// readDirFn lists one folder; tests swap it for a fake share.
+var readDirFn = listDir
+
 // walkRoot lists every media file under root, one folder at a time.
 func walkRoot(root string) ([]found, error) {
-	return walkRootWith(root, listDir)
+	return walkRootWith(root, readDirFn)
 }
 
 func walkRootWith(root string, readDir func(string) ([]dirEntry, error)) ([]found, error) {
@@ -324,7 +386,12 @@ func probeAll(ids []int64) {
 				if err := store.DB.First(&f, id).Error; err != nil {
 					continue
 				}
-				probe(&f)
+				if err := probe(&f); err != nil {
+					dropUnreachable(&f)
+					n := int(done.Add(1))
+					setStatus(func(s *Status) { s.Done = n })
+					continue
+				}
 				if err := store.DB.Model(&store.File{}).Where("id = ?", id).Select(
 					"width", "height", "duration_ms", "v_codec", "a_codec", "direct", "probed",
 				).Updates(&f).Error; err != nil {
@@ -341,6 +408,21 @@ func probeAll(ids []int64) {
 	close(jobs)
 	wg.Wait()
 	logx.Infof("Read metadata for %d files", len(ids))
+}
+
+// dropUnreachable takes a file the listing showed but the probe could not
+// open back out of the index, and remembers it so the next scan does not
+// add it again. Only the row as listed is removed.
+func dropUnreachable(f *store.File) {
+	res := store.DB.Where("id = ? AND size = ? AND mod_time = ?", f.ID, f.Size, f.ModTime).Delete(&store.File{})
+	if res.Error != nil {
+		logx.Error(eris.Wrapf(res.Error, "Failed to drop %s from the index", f.Name))
+		return
+	}
+	e := found{rel: f.RelPath, name: f.Name, kind: f.Kind, ext: f.Ext, size: f.Size, mod: f.ModTime}
+	if markUnreachable(f.Root, e) {
+		logx.Warnf("Skipping %s — the share lists it but cannot open it, usually a name with a character SMB cannot address such as a colon; rename it on the NAS itself", FullPath(f))
+	}
 }
 
 // FullPath is where a stored file lives on disk.

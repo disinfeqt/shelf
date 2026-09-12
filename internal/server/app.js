@@ -2198,6 +2198,30 @@ async function pollStatus() {
 let renderedRoots = "";
 $("#refresh").addEventListener("click", resetAndLoad);
 
+// The share cannot tell us when a file lands on it, so ask for a scan when
+// someone comes back to look, unless one ran a moment ago or is running.
+const STALE_AFTER_MS = 60 * 1000;
+async function rescanIfStale() {
+  if (document.hidden) return;
+  let status;
+  try {
+    status = await loadStatus(true);
+  } catch {
+    return;
+  }
+  if (status.scanning || !status.roots.some((r) => r.ok)) return;
+  const last = Date.parse(status.last_scan);
+  if (Number.isFinite(last) && Date.now() - last < STALE_AFTER_MS) return;
+  try {
+    await fetch("/api/rescan", { method: "POST" });
+  } catch {
+    return;
+  }
+  pollStatus();
+}
+document.addEventListener("visibilitychange", rescanIfStale);
+window.addEventListener("focus", rescanIfStale);
+
 /* ---- Controls ---- */
 $("#home").addEventListener("click", goHome);
 let debounceTimer = null;
@@ -2270,4 +2294,5 @@ let viewFromURL = false;
     renderSubpage();
   }
   pollStatus();
+  rescanIfStale();
 })();
