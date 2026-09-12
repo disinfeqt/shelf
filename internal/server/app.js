@@ -365,7 +365,10 @@ function card(t) {
   };
   if (t.kind === "video" && t.direct) {
     const v = document.createElement("video");
-    v.src = videoSrc(t);
+    // A phone needs the first-frame trick to paint anything; a desktop
+    // browser keeps the poster until hover plays, and a film's opening
+    // frame is black anyway.
+    v.src = NARROW.matches ? videoSrc(t) : mediaSrc(t);
     v.poster = thumbSrc(t);
     v.muted = true;
     v.loop = true;
