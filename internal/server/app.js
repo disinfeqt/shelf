@@ -17,7 +17,6 @@ const KIND_TABS = [
   ["all", "All"],
   ["photo", "Photos"],
   ["video", "Videos"],
-  ["gif", "GIFs"],
 ];
 const SORTS = [
   "newest",
