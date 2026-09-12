@@ -18,6 +18,11 @@ const KIND_TABS = [
   ["photo", "Photos"],
   ["video", "Videos"],
 ];
+const VIEW_TITLES = {
+  timeline: "Timeline",
+  activity: "Activity",
+  settings: "Settings",
+};
 const SORTS = [
   "newest",
   "oldest",
@@ -30,7 +35,7 @@ const SORTS = [
 
 /* ---- State ---- */
 const state = {
-  view: "grid", // grid | folders | kinds | timeline | activity | settings
+  view: "grid", // grid | timeline | activity | settings
   root: "", // one configured folder's resolved path, or "" for all of them
   q: "",
   kind: "all",
@@ -64,51 +69,6 @@ async function loadStatus(force) {
 
 const roots = () => (statusCache && statusCache.roots) || [];
 
-function renderRootSwitcher() {
-  const list = roots();
-  $("#rootwrap").hidden = list.length === 0;
-  $("#root").disabled = list.length < 2;
-  const sel = $("#root");
-  sel.textContent = "";
-  if (list.length > 1) {
-    const all = el("option", "", "Everything");
-    all.value = "";
-    sel.append(all);
-  }
-  for (const r of list) {
-    const option = el("option", "", r.name + (r.ok ? "" : " (offline)"));
-    option.value = r.path;
-    sel.append(option);
-  }
-  if (state.root && !list.some((r) => r.path === state.root)) state.root = "";
-  // One folder has nothing to switch to, but it still has to be named.
-  sel.value = state.root || (list.length === 1 ? list[0].path : "");
-  fitRootSelect();
-}
-
-// A native select is as wide as its widest option; size it to the one on
-// screen so one long folder name does not stretch the header for all.
-function fitRootSelect() {
-  const sel = $("#root");
-  const option = sel.options[sel.selectedIndex];
-  if (!option) return;
-  const probe = $("#rootprobe");
-  probe.textContent = option.textContent;
-  const width = probe.getBoundingClientRect().width;
-  if (width > 0) sel.style.width = Math.ceil(width) + 32 + "px";
-}
-
-function switchRoot(path) {
-  if (path === state.root) return;
-  state.root = path;
-  statsCache = null;
-  foldersCache = null;
-  state.counts = null;
-  clearFilters();
-  loadStats().catch(() => {});
-  setView("grid");
-}
-
 async function ensureStats() {
   if (statsCache) return statsCache;
   const res = await fetch(withRoot("/api/stats"));
@@ -117,21 +77,145 @@ async function ensureStats() {
   return statsCache;
 }
 
-/* ---- Header ---- */
-const monthYear = (iso) =>
-  new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short" });
-
-function timeSpan(firstISO, lastISO) {
-  const first = new Date(firstISO);
-  const last = new Date(lastISO);
-  if (first.getFullYear() !== last.getFullYear())
-    return first.getFullYear() + " – " + last.getFullYear();
-  if (first.getMonth() === last.getMonth()) return monthYear(firstISO);
-  const month = (d) => d.toLocaleDateString(undefined, { month: "short" });
-  return month(first) + " – " + month(last) + " " + last.getFullYear();
+async function ensureFolders() {
+  if (foldersCache) return foldersCache;
+  const res = await fetch("/api/folders");
+  if (!res.ok) throw new Error("folders request failed");
+  foldersCache = (await res.json()).items;
+  return foldersCache;
 }
 
-// Something the user has to act on: no folder yet, or one that is offline.
+/* ---- Sidebar: the folder tree ---- */
+// Which nodes are unfolded, by "root\ndir". Roots start open; whatever
+// leads to the folder on screen is opened as it is selected.
+const expanded = new Set();
+let treeTouched = false;
+const nodeKey = (root, dir) => root + "\n" + dir;
+
+// Builds one tree per root out of the flat folder counts.
+function buildTree(folders) {
+  const byRoot = new Map();
+  for (const r of roots()) {
+    byRoot.set(r.path, {
+      root: r.path, dir: "", name: r.name, count: 0, ok: r.ok, children: new Map(),
+    });
+  }
+  for (const f of folders) {
+    let node = byRoot.get(f.root);
+    if (!node) {
+      node = { root: f.root, dir: "", name: f.root.split("/").pop(), count: 0, ok: true, children: new Map() };
+      byRoot.set(f.root, node);
+    }
+    if (f.dir === "") {
+      node.count = f.count;
+      continue;
+    }
+    let cur = node;
+    let path = "";
+    for (const part of f.dir.split("/")) {
+      path = path ? path + "/" + part : part;
+      let child = cur.children.get(part);
+      if (!child) {
+        child = { root: f.root, dir: path, name: part, count: 0, ok: true, children: new Map() };
+        cur.children.set(part, child);
+      }
+      cur = child;
+    }
+    cur.count = f.count;
+  }
+  return [...byRoot.values()];
+}
+
+function isCurrent(node) {
+  return state.view === "grid" && state.root === node.root && state.dir === node.dir;
+}
+
+function renderNode(node, depth) {
+  const key = nodeKey(node.root, node.dir);
+  const wrap = el("div", "node" + (depth === 0 ? " root" : ""));
+  wrap.style.setProperty("--depth", String(depth));
+  const hasKids = node.children.size > 0;
+  if (hasKids && expanded.has(key)) wrap.classList.add("open");
+
+  const label = el("button", "nlabel" + (node.ok ? "" : " offline"));
+  if (isCurrent(node)) label.setAttribute("aria-current", "true");
+  const caret = el("span", "caret" + (hasKids ? "" : " leaf"));
+  if (hasKids) {
+    caret.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (expanded.has(key)) expanded.delete(key);
+      else expanded.add(key);
+      wrap.classList.toggle("open", expanded.has(key));
+    });
+  }
+  label.append(caret, el("span", "nname", node.name));
+  if (node.count > 0) label.append(el("span", "n", fmt(node.count)));
+  label.title = node.ok ? node.dir || node.root : "Not reachable";
+  label.addEventListener("click", () => selectFolder(node.root, node.dir));
+  wrap.append(label);
+
+  if (hasKids) {
+    const kids = el("div", "children");
+    const sorted = [...node.children.values()].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }),
+    );
+    for (const child of sorted) kids.append(renderNode(child, depth + 1));
+    wrap.append(kids);
+  }
+  return wrap;
+}
+
+async function renderTree() {
+  const tree = $("#tree");
+  let folders;
+  try {
+    folders = await ensureFolders();
+  } catch {
+    tree.textContent = "";
+    tree.append(el("div", "spnote", "Could not load folders."));
+    return;
+  }
+  const list = roots();
+  if (!treeTouched) {
+    for (const r of list) expanded.add(nodeKey(r.path, ""));
+    treeTouched = true;
+  }
+  // The folder on screen must be visible, whatever was folded before.
+  if (state.root) {
+    expanded.add(nodeKey(state.root, ""));
+    let path = "";
+    for (const part of state.dir ? state.dir.split("/") : []) {
+      path = path ? path + "/" + part : part;
+      expanded.add(nodeKey(state.root, path));
+    }
+  }
+
+  tree.textContent = "";
+  const everything = el("div", "node");
+  const all = el("button", "nlabel");
+  if (state.view === "grid" && !state.root && !state.dir) all.setAttribute("aria-current", "true");
+  all.append(el("span", "caret leaf"), el("span", "nname", "Everything"));
+  const total = folders.filter((f) => f.dir === "").reduce((n, f) => n + f.count, 0);
+  if (total > 0) all.append(el("span", "n", fmt(total)));
+  all.addEventListener("click", () => selectFolder("", ""));
+  everything.append(all);
+  tree.append(everything);
+  tree.append(el("div", "treehead", list.length === 1 ? "Folder" : "Folders"));
+  for (const node of buildTree(folders)) tree.append(renderNode(node, 0));
+  if (!list.length) tree.append(el("div", "spnote", "No folders yet — add one in Settings."));
+}
+
+function selectFolder(root, dir) {
+  state.root = root;
+  state.dir = dir;
+  state.month = "";
+  closeSide();
+  if (state.view === "grid") resetAndLoad();
+  else setView("grid");
+  scrollTo({ top: 0 });
+}
+
+/* ---- Sidebar: links and status ---- */
 function setupAlert() {
   const list = roots();
   if (!list.length) return "Add a folder";
@@ -139,61 +223,89 @@ function setupAlert() {
   return "";
 }
 
-let lastStats = null;
-
-async function loadStats() {
-  renderStatline(await ensureStats());
+function renderSideLinks() {
+  const box = $("#sidelinks");
+  box.textContent = "";
+  const alert = setupAlert();
+  for (const [view, label] of Object.entries(VIEW_TITLES)) {
+    const b = el("button", "", label);
+    if (state.view === view) b.setAttribute("aria-current", "true");
+    if (view === "settings" && alert) b.prepend(el("span", "alert"));
+    b.addEventListener("click", () => {
+      closeSide();
+      setView(view);
+    });
+    box.append(b);
+  }
 }
 
-function renderStatline(stats) {
-  lastStats = stats;
-  const line = $("#statline");
-  line.textContent = "";
+let lastStats = null;
+async function loadStats() {
+  lastStats = await ensureStats();
+  renderSideStatus();
+}
+function renderSideStatus() {
+  const box = $("#sidestatus");
+  box.textContent = "";
+  if (lastStats) {
+    const t = lastStats.totals;
+    box.append(fmt(t.files) + (t.files === 1 ? " file" : " files") + " · " + fmtBytes(t.bytes));
+  }
   const alert = setupAlert();
   if (alert) {
     const chip = el("button", "warn", alert);
-    chip.addEventListener("click", () => setView("settings"));
-    line.append(chip);
-  }
-  renderMenu(stats, alert);
-}
-
-function renderMenu(stats, alert) {
-  const btn = $("#menubtn");
-  btn.textContent = "Menu";
-  if (alert) btn.prepend(el("span", "alert"));
-
-  const pop = $("#menupop");
-  pop.textContent = "";
-  const item = (view, label, count, cls) => {
-    const b = el("button", "menuitem" + (cls ? " " + cls : ""));
-    b.append(el("span", "", label), el("span", "n", count || ""));
-    if (state.view === view) b.setAttribute("aria-current", "true");
-    b.addEventListener("click", () => {
-      $("#menu").open = false;
-      if (view === "grid") goHome();
-      else setView(view);
+    chip.addEventListener("click", () => {
+      closeSide();
+      setView("settings");
     });
-    pop.append(b);
-    return b;
-  };
-  const t = stats.totals;
-  item("grid", "Library", fmt(t.files));
-  item("folders", "Folders", fmt(t.folders));
-  item("kinds", "Kinds", fmtBytes(t.bytes));
-  if (stats.first) item("timeline", "Timeline", timeSpan(stats.first, stats.last));
-  item("activity", "Activity", "", "live");
-  pop.append(el("div", "menusep"));
-  item("settings", "Settings", alert ? "!" : "", alert ? "attention" : "");
+    box.append(el("br"), chip);
+  }
+  renderSideLinks();
 }
 
-document.addEventListener("click", (e) => {
-  const menu = $("#menu");
-  if (menu.open && !menu.contains(e.target)) menu.open = false;
-});
+/* ---- Drawer (narrow screens) ---- */
+function openSide() {
+  document.body.classList.add("sideopen");
+  $("#backdrop").hidden = false;
+}
+function closeSide() {
+  document.body.classList.remove("sideopen");
+  $("#backdrop").hidden = true;
+}
+$("#menubtn").addEventListener("click", openSide);
+$("#sideclose").addEventListener("click", closeSide);
+$("#backdrop").addEventListener("click", closeSide);
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") $("#menu").open = false;
+  if (e.key === "Escape" && document.body.classList.contains("sideopen")) closeSide();
 });
+
+/* ---- Breadcrumbs ---- */
+function renderCrumbs() {
+  const box = $("#crumbs");
+  box.textContent = "";
+  const crumb = (label, onClick) => {
+    const b = el("button", "", label);
+    b.addEventListener("click", onClick);
+    if (box.children.length) box.append(el("span", "sep", "›"));
+    box.append(b);
+  };
+  crumb("Everything", () => selectFolder("", ""));
+  if (state.view !== "grid") {
+    crumb(VIEW_TITLES[state.view], () => {});
+    return;
+  }
+  if (state.root) {
+    const r = roots().find((x) => x.path === state.root);
+    crumb(r ? r.name : state.root.split("/").pop(), () => selectFolder(state.root, ""));
+    let path = "";
+    for (const part of state.dir ? state.dir.split("/") : []) {
+      const here = path ? path + "/" + part : part;
+      path = here;
+      crumb(part, () => selectFolder(state.root, here));
+    }
+  }
+  if (state.q) crumb("“" + state.q + "”", () => {});
+}
 
 /* ---- Tabs with live counts ---- */
 function renderTabs() {
@@ -316,8 +428,8 @@ let cardNodes = [];
 function colCount() {
   if (NARROW.matches) return 2;
   const grid = $("#grid");
-  const gap = parseFloat(getComputedStyle(grid).columnGap) || 14;
-  return Math.max(1, Math.min(4, Math.floor((grid.clientWidth + gap) / (240 + gap))));
+  const gap = parseFloat(getComputedStyle(grid).columnGap) || 12;
+  return Math.max(1, Math.min(5, Math.floor((grid.clientWidth + gap) / (230 + gap))));
 }
 function setupColumns() {
   const grid = $("#grid");
@@ -360,7 +472,7 @@ function card(t) {
     thumb.textContent = "";
     thumb.classList.add("pending");
     thumb.append(KIND_LABELS[t.kind] + " · no preview");
-    thumb.append(badgeEl(t));
+    thumb.append(badgeEl(t), caption(t));
   };
   if (t.kind === "video" && t.direct) {
     const v = document.createElement("video");
@@ -402,18 +514,20 @@ function card(t) {
     });
     thumb.append(img);
   }
-  thumb.append(badgeEl(t));
-  const peek = el("div", "peek");
-  peek.append(el("div", "ptext", t.title));
-  thumb.append(peek);
+  thumb.append(badgeEl(t), caption(t));
   c.append(thumb);
-
-  const meta = el("div", "meta");
-  meta.append(avatarEl(t));
-  meta.append(el("span", "handle", t.folder));
-  meta.append(el("span", "when", shortDate(t.mod_time)));
-  c.append(meta);
   return c;
+}
+
+// The caption rides over the foot of the picture: folder and date always,
+// the file name on hover.
+function caption(t) {
+  const cap = el("div", "cap");
+  cap.append(el("div", "capt", t.title));
+  const m = el("div", "capm");
+  m.append(avatarEl(t), el("span", "folder", t.folder), el("span", "when", shortDate(t.mod_time)));
+  cap.append(m);
+  return cap;
 }
 
 /* ---- Fetch + render ---- */
@@ -485,7 +599,7 @@ async function loadPage(append) {
       el(
         "div",
         "empty",
-        roots().length ? "Nothing matches." : "No folders yet — add one in Settings.",
+        roots().length ? "Nothing here." : "No folders yet — add one in Settings.",
       ),
     );
   }
@@ -556,6 +670,8 @@ function resetAndLoad() {
   state.page = 1;
   $("#refresh").hidden = true;
   syncURL();
+  renderCrumbs();
+  renderTree();
   loadPage(false);
 }
 
@@ -568,21 +684,18 @@ const monthName = (ym) => {
 };
 
 function updateChip() {
-  const chip = $("#chip");
-  chip.hidden = !state.dir;
-  if (state.dir) $("span", chip).textContent = state.dir;
   const mchip = $("#mchip");
   mchip.hidden = !state.month;
   if (state.month) $("span", mchip).textContent = monthName(state.month);
 }
 
-/* ---- Subpages ---- */
+/* ---- Views ---- */
 function applyView() {
   const inGrid = state.view === "grid";
-  for (const sel of [".bar", ".countbar", "#grid"]) $(sel).hidden = !inGrid;
+  for (const sel of [".bar", "#grid"]) $(sel).hidden = !inGrid;
+  $("#sort").parentElement.hidden = !inGrid;
   if (!inGrid) {
     $("#more").hidden = true;
-    $("#chip").hidden = true;
     $("#mchip").hidden = true;
   }
   $("#subpage").hidden = inGrid;
@@ -590,11 +703,15 @@ function applyView() {
 
 function setView(view) {
   state.view = view;
-  if (lastStats) renderMenu(lastStats, setupAlert());
   syncURL();
   applyView();
+  renderSideLinks();
   if (view === "grid") resetAndLoad();
-  else renderSubpage();
+  else {
+    renderCrumbs();
+    renderTree();
+    renderSubpage();
+  }
 }
 
 function clearFilters() {
@@ -602,6 +719,7 @@ function clearFilters() {
   $("#q").value = "";
   state.kind = "all";
   state.dir = "";
+  state.root = "";
   state.month = "";
 }
 
@@ -609,32 +727,21 @@ function goHome() {
   clearFilters();
   state.sort = "newest";
   $("#sort").value = "newest";
+  closeSide();
   setView("grid");
 }
-
-const VIEW_TITLES = {
-  folders: "Folders",
-  kinds: "Kinds",
-  timeline: "Timeline",
-  activity: "Activity",
-  settings: "Settings",
-};
 
 async function renderSubpage() {
   const sp = $("#subpage");
   sp.textContent = "";
   const head = el("div", "sphead");
-  const back = el("button", "spback", "←");
-  back.addEventListener("click", () => setView("grid"));
-  head.append(back, el("h2", "sptitle", VIEW_TITLES[state.view] || ""));
+  head.append(el("h2", "sptitle", VIEW_TITLES[state.view] || ""));
   sp.append(head);
   const body = el("div", "spbody");
   sp.append(body);
   body.append(el("div", "spnote", "Loading…"));
   try {
-    if (state.view === "folders") await renderFolders(body);
-    else if (state.view === "kinds") await renderKinds(body);
-    else if (state.view === "timeline") await renderTimeline(body);
+    if (state.view === "timeline") await renderTimeline(body);
     else if (state.view === "activity") await renderActivity(body);
     else if (state.view === "settings") await renderSettings(body);
   } catch {
@@ -655,87 +762,6 @@ function statRow(cls, cells, count, max, onClick) {
   return row;
 }
 
-async function renderFolders(body) {
-  if (!foldersCache) {
-    const res = await fetch(withRoot("/api/folders"));
-    if (!res.ok) throw new Error("folders request failed");
-    foldersCache = (await res.json()).items;
-  }
-  body.textContent = "";
-  if (!foldersCache.length) {
-    body.append(el("div", "spnote", "No folders indexed yet."));
-    return;
-  }
-  const max = Math.max(1, ...foldersCache.map((f) => f.count));
-  for (const f of foldersCache) {
-    const who = el("span", "swho");
-    who.append(el("b", "", f.name));
-    if (f.dir.includes("/"))
-      who.append(el("span", "shandle", f.dir.slice(0, f.dir.lastIndexOf("/"))));
-    const row = statRow(
-      "author",
-      [avatarEl({ root: f.root, dir: f.dir, folder: f.name }), who],
-      f.count,
-      max,
-      () => {
-        clearFilters();
-        state.root = f.root;
-        $("#root").value = f.root;
-        fitRootSelect();
-        state.dir = f.dir;
-        setView("grid");
-      },
-    );
-    row.style.setProperty("--depth", String(f.depth));
-    if (!f.dir) {
-      body.append(row);
-      continue;
-    }
-    // The root itself cannot be ignored; every folder under it can.
-    const line = el("div", "srowline");
-    const ignore = el("button", "ignorebtn", "Ignore");
-    ignore.title = "Skip this folder when indexing";
-    ignore.addEventListener("click", async () => {
-      ignore.disabled = true;
-      const current = (statusCache && statusCache.ignore) || [];
-      if (!(await saveIgnore(current.concat(f.dir)))) ignore.disabled = false;
-    });
-    line.append(row, ignore);
-    body.append(line);
-  }
-  const note = el("p", "spnote", "Ignored folders drop out of the library on the next scan, which starts right away.");
-  body.append(note);
-}
-
-async function renderKinds(body) {
-  const stats = await ensureStats();
-  body.textContent = "";
-  const t = stats.totals;
-  body.append(
-    el(
-      "p",
-      "spsummary",
-      fmt(t.files) + " files · " + fmtBytes(t.bytes) + " on disk",
-    ),
-  );
-  const LABELS = { photo: "Photos", video: "Videos", gif: "GIFs" };
-  const kinds = stats.kinds || [];
-  if (!kinds.length) {
-    body.append(el("div", "spnote", "No media yet."));
-    return;
-  }
-  const max = Math.max(1, ...kinds.map((k) => k.count));
-  for (const k of kinds) {
-    body.append(
-      statRow("plain", [el("span", "slabel", LABELS[k.kind] || k.kind)], k.count, max, () => {
-        clearFilters();
-        state.kind = k.kind;
-        setView("grid");
-      }),
-    );
-  }
-}
-
 async function renderTimeline(body) {
   const stats = await ensureStats();
   body.textContent = "";
@@ -744,11 +770,13 @@ async function renderTimeline(body) {
     body.append(el("div", "spnote", "Nothing indexed yet."));
     return;
   }
+  body.append(
+    el("p", "spsummary", "By file date" + (state.root ? ", within the selected folder" : "") + "."),
+  );
   const max = Math.max(1, ...monthly.map((m) => m.count));
   for (const m of monthly) {
     body.append(
       statRow("plain", [el("span", "slabel", monthName(m.month))], m.count, max, () => {
-        clearFilters();
         state.month = m.month;
         setView("grid");
       }),
@@ -808,13 +836,13 @@ async function renderActivity(body) {
 }
 
 /* ---- Settings: the folders Shelf indexes ---- */
-async function saveIgnore(next) {
+async function saveSettings(patch) {
   let res;
   try {
     res = await fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ignore: next }),
+      body: JSON.stringify(patch),
     });
   } catch {
     res = null;
@@ -826,6 +854,8 @@ async function saveIgnore(next) {
   statusCache = await loadStatus(true);
   statsCache = null;
   foldersCache = null;
+  renderTree();
+  loadStats().catch(() => {});
   if (state.view !== "grid") renderSubpage();
   return true;
 }
@@ -845,28 +875,6 @@ async function renderSettings(body) {
   );
   const list = el("div");
   const specs = status.roots.map((r) => r.spec);
-  const save = async (next) => {
-    let res;
-    try {
-      res = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roots: next }),
-      });
-    } catch {
-      res = null;
-    }
-    if (!res || !res.ok) {
-      alert("Could not save — is Shelf running?");
-      return;
-    }
-    statusCache = await loadStatus(true);
-    statsCache = null;
-    foldersCache = null;
-    renderRootSwitcher();
-    loadStats().catch(() => {});
-    renderSubpage();
-  };
   for (const r of status.roots) {
     const row = el("div", "rootrow");
     row.append(el("span", "dot" + (r.ok ? " ok" : " warn")));
@@ -875,7 +883,7 @@ async function renderSettings(body) {
     else if (!r.ok) p.append(el("small", "", "not reachable"));
     row.append(p);
     const rm = el("button", "", "Remove");
-    rm.addEventListener("click", () => save(specs.filter((s) => s !== r.spec)));
+    rm.addEventListener("click", () => saveSettings({ roots: specs.filter((s) => s !== r.spec) }));
     row.append(rm);
     list.append(row);
   }
@@ -889,7 +897,7 @@ async function renderSettings(body) {
   const add = () => {
     const spec = input.value.trim();
     if (!spec || specs.includes(spec)) return;
-    save(specs.concat(spec));
+    saveSettings({ roots: specs.concat(spec) });
   };
   const addBtn = el("button", "btn", "Add folder");
   addBtn.addEventListener("click", add);
@@ -914,7 +922,7 @@ async function renderSettings(body) {
     const row = el("div", "rootrow");
     row.append(el("span", "rpath", pattern));
     const rm = el("button", "", "Remove");
-    rm.addEventListener("click", () => saveIgnore(ignored.filter((s) => s !== pattern)));
+    rm.addEventListener("click", () => saveSettings({ ignore: ignored.filter((s) => s !== pattern) }));
     row.append(rm);
     ign.append(row);
   }
@@ -926,7 +934,7 @@ async function renderSettings(body) {
   const addIgnore = () => {
     const pattern = iinput.value.trim().replace(/^\/+|\/+$/g, "");
     if (!pattern || ignored.includes(pattern)) return;
-    saveIgnore(ignored.concat(pattern));
+    saveSettings({ ignore: ignored.concat(pattern) });
   };
   const iadd = el("button", "btn quiet", "Ignore folder");
   iadd.addEventListener("click", addIgnore);
@@ -1458,13 +1466,8 @@ addEventListener("keydown", (e) => {
   }
 });
 function filterFolder(t) {
-  state.root = t.root;
-  $("#root").value = t.root;
-  fitRootSelect();
-  state.dir = t.dir;
   closeLb();
-  resetAndLoad();
-  scrollTo({ top: 0, behavior: "smooth" });
+  selectFolder(t.root, t.dir);
 }
 $("#lbhandle").addEventListener("click", () => {
   const t = state.items[lbIndex];
@@ -1515,6 +1518,7 @@ async function deleteFile() {
   foldersCache = null;
   updateCount();
   renderTabs();
+  renderTree();
   closeLb();
 }
 $("#lbreveal").addEventListener("click", async () => {
@@ -1569,6 +1573,7 @@ async function pollStatus() {
       statsCache = null;
       foldersCache = null;
       loadStats().catch(() => {});
+      renderTree();
       // An empty grid can simply fill itself; one being read gets a
       // button, so nothing jumps under the reader.
       if (state.view === "grid" && !state.items.length) resetAndLoad();
@@ -1579,8 +1584,9 @@ async function pollStatus() {
     const rootsNow = JSON.stringify(data.roots.map((r) => [r.path, r.ok]));
     if (rootsNow !== renderedRoots) {
       renderedRoots = rootsNow;
-      renderRootSwitcher();
-      if (lastStats) renderStatline(lastStats);
+      renderTree();
+      renderSideStatus();
+      renderCrumbs();
     }
   }
   clearTimeout(statusTimer);
@@ -1596,24 +1602,20 @@ $("#q").addEventListener("input", (e) => {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     state.q = e.target.value.trim();
-    resetAndLoad();
+    if (state.view !== "grid") setView("grid");
+    else resetAndLoad();
   }, 300);
+});
+$("#q").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") closeSide();
 });
 $("#sort").addEventListener("change", (e) => {
   state.sort = e.target.value;
   resetAndLoad();
 });
-$("#chip button").addEventListener("click", () => {
-  state.dir = "";
-  resetAndLoad();
-});
 $("#mchip button").addEventListener("click", () => {
   state.month = "";
   resetAndLoad();
-});
-$("#root").addEventListener("change", (e) => {
-  fitRootSelect();
-  switchRoot(e.target.value);
 });
 
 /* ---- Boot ---- */
@@ -1642,17 +1644,24 @@ let viewFromURL = false;
     const status = await loadStatus();
     knownVersion = status.version;
     renderedRoots = JSON.stringify(status.roots.map((r) => [r.path, r.ok]));
-    renderRootSwitcher();
+    if (state.root && !status.roots.some((r) => r.path === state.root)) {
+      state.root = "";
+      state.dir = "";
+    }
     if (!viewFromURL && !status.roots.length) state.view = "settings";
   } catch {
     // The grid still explains itself without this.
   }
-  renderTabs();
+  renderSideLinks();
   loadStats().catch(() => {
-    $("#statline").textContent = "Could not load — is Shelf running?";
+    $("#sidestatus").textContent = "Could not load — is Shelf running?";
   });
   applyView();
   if (state.view === "grid") resetAndLoad();
-  else renderSubpage();
+  else {
+    renderCrumbs();
+    renderTree();
+    renderSubpage();
+  }
   pollStatus();
 })();

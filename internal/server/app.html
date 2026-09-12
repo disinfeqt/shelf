@@ -20,35 +20,16 @@
     <meta name="apple-mobile-web-app-title" content="Shelf" />
   </head>
   <body>
-    <main>
-      <header class="page">
-        <div class="brandrow">
-          <h1>
-            <button id="home" title="Show everything">Shelf</button>
-          </h1>
-          <span class="acct" id="rootwrap" hidden>
-            <select id="root" aria-label="Folder being browsed"></select>
-            <span class="probe" id="rootprobe" aria-hidden="true"></span>
-          </span>
+    <div class="shell">
+      <aside class="side" id="side" aria-label="Folders">
+        <div class="sidehead">
+          <button class="brand" id="home" title="Show everything">
+            <span class="mark" aria-hidden="true"></span>Shelf
+          </button>
+          <button class="iconbtn narrow-only" id="sideclose" aria-label="Close folders">
+            ✕
+          </button>
         </div>
-        <div class="headright">
-          <div class="statline" id="statline"></div>
-          <details class="menu" id="menu">
-            <summary id="menubtn">Menu</summary>
-            <div class="menupop" id="menupop"></div>
-          </details>
-        </div>
-      </header>
-
-      <div id="ixstrip" hidden>
-        <div class="dlhead">
-          <span id="ixtext"></span>
-          <span id="ixpct"></span>
-        </div>
-        <div class="dltrack"><div class="dlbar" id="ixbar"></div></div>
-      </div>
-
-      <div class="bar">
         <div class="search">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <circle cx="11" cy="11" r="7"></circle>
@@ -57,12 +38,26 @@
           <input
             id="q"
             type="search"
-            placeholder="Search file names and folders"
-            aria-label="Search files"
+            placeholder="Search"
+            aria-label="Search file names and folders"
           />
         </div>
-        <div class="barrow">
-          <div class="tabs" role="group" aria-label="Filter by kind" id="tabs"></div>
+        <nav class="tree" id="tree" aria-label="Folder tree"></nav>
+        <div class="sidefoot">
+          <div class="sidelinks" id="sidelinks"></div>
+          <div class="sidestatus" id="sidestatus"></div>
+        </div>
+      </aside>
+      <div class="backdrop" id="backdrop" hidden></div>
+
+      <main>
+        <header class="top">
+          <button class="iconbtn narrow-only" id="menubtn" aria-label="Open folders">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2 4h12M2 8h12M2 12h12" />
+            </svg>
+          </button>
+          <nav class="crumbs" id="crumbs" aria-label="Location"></nav>
           <span class="selwrap">
             <select id="sort" aria-label="Sort order">
               <option value="newest">Newest</option>
@@ -74,34 +69,38 @@
               <option value="shortest">Shortest video</option>
             </select>
           </span>
+        </header>
+
+        <div id="ixstrip" hidden>
+          <div class="dlhead">
+            <span id="ixtext"></span>
+            <span id="ixpct"></span>
+          </div>
+          <div class="dltrack"><div class="dlbar" id="ixbar"></div></div>
         </div>
-      </div>
 
-      <span id="chip" class="chip" hidden>
-        <span></span
-        ><button title="Clear folder filter" aria-label="Clear folder filter">
-          ×
-        </button>
-      </span>
-      <span id="mchip" class="chip" hidden>
-        <span></span
-        ><button title="Clear month filter" aria-label="Clear month filter">
-          ×
-        </button>
-      </span>
-
-      <div class="countbar">
-        <div id="count"></div>
-        <button class="refresh" id="refresh" hidden>
-          Library changed · refresh
-        </button>
-      </div>
-      <div id="grid"></div>
-      <div class="sentinel" id="more" hidden aria-hidden="true">
-        Loading more…
-      </div>
-      <section id="subpage" hidden></section>
-    </main>
+        <div class="bar">
+          <div class="tabs" role="group" aria-label="Filter by kind" id="tabs"></div>
+          <div class="barright">
+            <span id="mchip" class="chip" hidden>
+              <span></span
+              ><button title="Clear month filter" aria-label="Clear month filter">
+                ×
+              </button>
+            </span>
+            <button class="refresh" id="refresh" hidden>
+              Library changed · refresh
+            </button>
+            <span id="count"></span>
+          </div>
+        </div>
+        <div id="grid"></div>
+        <div class="sentinel" id="more" hidden aria-hidden="true">
+          Loading more…
+        </div>
+        <section id="subpage" hidden></section>
+      </main>
+    </div>
 
     <div id="lb" role="dialog" aria-modal="true" aria-label="File detail">
       <button class="lb-close" id="lbclose" aria-label="Close">✕</button>
